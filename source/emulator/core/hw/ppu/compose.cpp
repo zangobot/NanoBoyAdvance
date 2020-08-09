@@ -38,112 +38,111 @@ void PPU::InitBlendTable() {
   }
 }
 
-void PPU::RenderScanline() {
-  std::uint16_t  vcount = mmio.vcount;
-  std::uint32_t* line = &output[vcount * 240];
+void PPU::RenderScanline(int line) {
+  std::uint32_t* buffer = &output[line * 240];
 
-  if (mmio.dispcnt.forced_blank) {
+  if (mmio_copy[line].dispcnt.forced_blank) {
     for (int x = 0; x < 240; x++) {
-      line[x] = ConvertColor(0x7FFF);
+      buffer[x] = ConvertColor(0x7FFF);
     }
     return;
   }
 
-  if (mmio.dispcnt.enable[ENABLE_WIN0]) {
-    RenderWindow(0);
+  if (mmio_copy[line].dispcnt.enable[ENABLE_WIN0]) {
+    RenderWindow(line, 0);
   }
 
-  if (mmio.dispcnt.enable[ENABLE_WIN1]) {
-    RenderWindow(1);
+  if (mmio_copy[line].dispcnt.enable[ENABLE_WIN1]) {
+    RenderWindow(line, 1);
   }
 
-  switch (mmio.dispcnt.mode) {
+  switch (mmio_copy[line].dispcnt.mode) {
     case 0: {
       /* BG Mode 0 - 240x160 pixels, Text mode */
       for (int i = 0; i < 4; i++) {
-        if (mmio.dispcnt.enable[i]) {
-          RenderLayerText(i);
+        if (mmio_copy[line].dispcnt.enable[i]) {
+          RenderLayerText(line, i);
         }
       }
-      if (mmio.dispcnt.enable[ENABLE_OBJ]) {
-        RenderLayerOAM(false);
+      if (mmio_copy[line].dispcnt.enable[ENABLE_OBJ]) {
+        RenderLayerOAM(line, false);
       }
-      ComposeScanline(0, 3);
+      ComposeScanline(line, 0, 3);
       break;
     }
     case 1: {
       /* BG Mode 1 - 240x160 pixels, Text and RS mode mixed */
       for (int i = 0; i < 2; i++) {
-        if (mmio.dispcnt.enable[i]) {
-          RenderLayerText(i);
+        if (mmio_copy[line].dispcnt.enable[i]) {
+          RenderLayerText(line, i);
         }
       }
-      if (mmio.dispcnt.enable[ENABLE_BG2]) {
-        RenderLayerAffine(0);
+      if (mmio_copy[line].dispcnt.enable[ENABLE_BG2]) {
+        RenderLayerAffine(line, 0);
       }
-      if (mmio.dispcnt.enable[ENABLE_OBJ]) {
-        RenderLayerOAM(false);
+      if (mmio_copy[line].dispcnt.enable[ENABLE_OBJ]) {
+        RenderLayerOAM(line, false);
       }
-      ComposeScanline(0, 2);
+      ComposeScanline(line, 0, 2);
       break;
     }
     case 2: {
       /* BG Mode 2 - 240x160 pixels, RS mode */
       for (int i = 0; i < 2; i++) {
-        if (mmio.dispcnt.enable[2 + i]) {
-          RenderLayerAffine(i);
+        if (mmio_copy[line].dispcnt.enable[2 + i]) {
+          RenderLayerAffine(line, i);
         }
       }
-      if (mmio.dispcnt.enable[ENABLE_OBJ]) {
-        RenderLayerOAM(false);
+      if (mmio_copy[line].dispcnt.enable[ENABLE_OBJ]) {
+        RenderLayerOAM(line, false);
       }
-      ComposeScanline(2, 3);
+      ComposeScanline(line, 2, 3);
       break;
     }
     case 3: {
       /* BG Mode 3 - 240x160 pixels, 32768 colors */
-      if (mmio.dispcnt.enable[2]) {
-        RenderLayerBitmap1();
+      if (mmio_copy[line].dispcnt.enable[2]) {
+        RenderLayerBitmap1(line);
       }
-      if (mmio.dispcnt.enable[ENABLE_OBJ]) {
-        RenderLayerOAM(true);
+      if (mmio_copy[line].dispcnt.enable[ENABLE_OBJ]) {
+        RenderLayerOAM(line, true);
       }
-      ComposeScanline(2, 2);
+      ComposeScanline(line, 2, 2);
       break;
     }
     case 4: {
       /* BG Mode 4 - 240x160 pixels, 256 colors (out of 32768 colors) */
-      if (mmio.dispcnt.enable[2]) {
-        RenderLayerBitmap2();
+      if (mmio_copy[line].dispcnt.enable[2]) {
+        RenderLayerBitmap2(line);
       }
-      if (mmio.dispcnt.enable[ENABLE_OBJ]) {
-        RenderLayerOAM(true);
+      if (mmio_copy[line].dispcnt.enable[ENABLE_OBJ]) {
+        RenderLayerOAM(line, true);
       }
-      ComposeScanline(2, 2);
+      ComposeScanline(line, 2, 2);
       break;
     }
     case 5: {
       /* BG Mode 5 - 160x128 pixels, 32768 colors */
-      if (mmio.dispcnt.enable[2]) {
-        RenderLayerBitmap3();
+      if (mmio_copy[line].dispcnt.enable[2]) {
+        RenderLayerBitmap3(line);
       }
-      if (mmio.dispcnt.enable[ENABLE_OBJ]) {
-        RenderLayerOAM(true);
+      if (mmio_copy[line].dispcnt.enable[ENABLE_OBJ]) {
+        RenderLayerOAM(line, true);
       }
-      ComposeScanline(2, 2);
+      ComposeScanline(line, 2, 2);
       break;
     }
   }
 }
 
-void PPU::ComposeScanline(int bg_min, int bg_max) {
-  std::uint32_t* line = &output[mmio.vcount * 240];
+void PPU::ComposeScanline(int line, int bg_min, int bg_max) {
+  std::uint32_t* buffer = &output[line * 240];
   std::uint16_t backdrop = ReadPalette(0, 0);
 
-  auto const& dispcnt = mmio.dispcnt;
-  auto const& bgcnt = mmio.bgcnt;
-  auto const& winin = mmio.winin;
-  auto const& winout = mmio.winout;
+  auto const& dispcnt = mmio_copy[line].dispcnt;
+  auto const& bgcnt = mmio_copy[line].bgcnt;
+  auto const& winin = mmio_copy[line].winin;
+  auto const& winout = mmio_copy[line].winout;
 
   bool win0_active = dispcnt.enable[ENABLE_WIN0] && window_scanline_enable[0];
   bool win1_active = dispcnt.enable[ENABLE_WIN1] && window_scanline_enable[1];
@@ -234,22 +233,23 @@ void PPU::ComposeScanline(int bg_min, int bg_max) {
     bool is_alpha_obj = layer[0] == LAYER_OBJ && buffer_obj[x].alpha;
 
     if (no_windows || win_layer_enable[LAYER_SFX] || is_alpha_obj) {
-      auto blend_mode = mmio.bldcnt.sfx;
-      bool have_dst = mmio.bldcnt.targets[0][layer[0]];
-      bool have_src = mmio.bldcnt.targets[1][layer[1]];
+      auto blend_mode = mmio_copy[line].bldcnt.sfx;
+      bool have_dst = mmio_copy[line].bldcnt.targets[0][layer[0]];
+      bool have_src = mmio_copy[line].bldcnt.targets[1][layer[1]];
 
       if (is_alpha_obj && have_src) {
-        Blend(pixel[0], pixel[1], BlendMode::SFX_BLEND);
+        Blend(line, pixel[0], pixel[1], BlendMode::SFX_BLEND);
       } else if (have_dst && blend_mode != BlendMode::SFX_NONE && (have_src || blend_mode != BlendMode::SFX_BLEND)) {
-        Blend(pixel[0], pixel[1], blend_mode);
+        Blend(line, pixel[0], pixel[1], blend_mode);
       }
     }
 
-    line[x] = ConvertColor(pixel[0]);
+    buffer[x] = ConvertColor(pixel[0]);
   }
 }
 
-void PPU::Blend(std::uint16_t& target1,
+void PPU::Blend(int line,
+                std::uint16_t& target1,
                 std::uint16_t target2,
                 BlendMode sfx) {
   int r1 = (target1 >>  0) & 0x1F;
@@ -258,8 +258,8 @@ void PPU::Blend(std::uint16_t& target1,
 
   switch (sfx) {
     case BlendMode::SFX_BLEND: {
-      int eva = std::min<int>(16, mmio.eva);
-      int evb = std::min<int>(16, mmio.evb);
+      int eva = std::min<int>(16, mmio_copy[line].eva);
+      int evb = std::min<int>(16, mmio_copy[line].evb);
 
       int r2 = (target2 >>  0) & 0x1F;
       int g2 = (target2 >>  5) & 0x1F;
@@ -271,7 +271,7 @@ void PPU::Blend(std::uint16_t& target1,
       break;
     }
     case BlendMode::SFX_BRIGHTEN: {
-      int evy = std::min<int>(16, mmio.evy);
+      int evy = std::min<int>(16, mmio_copy[line].evy);
 
       r1 = blend_table[16 - evy][evy][r1][31];
       g1 = blend_table[16 - evy][evy][g1][31];
@@ -279,7 +279,7 @@ void PPU::Blend(std::uint16_t& target1,
       break;
     }
     case BlendMode::SFX_DARKEN: {
-      int evy = std::min<int>(16, mmio.evy);
+      int evy = std::min<int>(16, mmio_copy[line].evy);
 
       r1 = blend_table[16 - evy][evy][r1][0];
       g1 = blend_table[16 - evy][evy][g1][0];

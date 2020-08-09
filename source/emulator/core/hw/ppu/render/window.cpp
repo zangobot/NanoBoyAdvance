@@ -9,9 +9,8 @@
 
 namespace nba::core {
 
-void PPU::RenderWindow(int id) {
-  int line = mmio.vcount;
-  auto& winv = mmio.winv[id];
+void PPU::RenderWindow(int line, int id) {
+  auto& winv = mmio_copy[line].winv[id];
 
   /* Check if the current scanline is outside of the window. */
   if ((winv.min <= winv.max && (line < winv.min || line >= winv.max)) ||
@@ -19,7 +18,7 @@ void PPU::RenderWindow(int id) {
     /* Mark window as inactive during the current scanline. */
     window_scanline_enable[id] = false;
   } else {
-    auto& winh = mmio.winh[id];
+    auto& winh = mmio_copy[line].winh[id];
 
     /* Mark window as active during the current scanline. */
     window_scanline_enable[id] = true;

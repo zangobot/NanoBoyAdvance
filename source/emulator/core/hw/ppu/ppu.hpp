@@ -7,12 +7,15 @@
 
 #pragma once
 
+#include <atomic>
 #include <emulator/config/config.hpp>
 #include <emulator/core/hw/dma.hpp>
 #include <emulator/core/hw/interrupt.hpp>
 #include <emulator/core/scheduler.hpp>
 #include <cstdint>
 #include <functional>
+#include <mutex>
+#include <thread>
 
 #include "registers.hpp"
 
@@ -59,7 +62,7 @@ public:
     int eva;
     int evb;
     int evy;
-  } mmio;
+  } mmio, mmio_copy[160];
 
 private:
   friend struct DisplayStatus;
@@ -119,18 +122,18 @@ private:
   void OnVblankScanlineComplete(int cycles_late);
   void OnVblankHblankComplete(int cycles_late);
 
-  void RenderScanline();
-  void RenderLayerText(int id);
-  void RenderLayerAffine(int id);
-  void RenderLayerBitmap1();
-  void RenderLayerBitmap2();
-  void RenderLayerBitmap3();
-  void RenderLayerOAM(bool bitmap_mode);
-  void RenderWindow(int id);
+  void RenderScanline(int line);
+  void RenderLayerText(int line, int id);
+  void RenderLayerAffine(int line, int id);
+  void RenderLayerBitmap1(int line);
+  void RenderLayerBitmap2(int line);
+  void RenderLayerBitmap3(int line);
+  void RenderLayerOAM(int line, bool bitmap_mode);
+  void RenderWindow(int line, int id);
 
-  void ComposeScanline(int bg_min, int bg_max);
+  void ComposeScanline(int line, int bg_min, int bg_max);
   void InitBlendTable();
-  void Blend(std::uint16_t& target1, std::uint16_t target2, BlendControl::Effect sfx);
+  void Blend(int line, std::uint16_t& target1, std::uint16_t target2, BlendControl::Effect sfx);
 
   #include "helper.inl"
 
@@ -161,6 +164,10 @@ private:
   Phase phase;
 
   std::uint8_t blend_table[17][17][32][32];
+
+  std::thread render_thread;
+  std::mutex render_thread_mutex;
+  std::atomic_int render_thread_lc;
 
   static constexpr std::uint16_t s_color_transparent = 0x8000;
   static constexpr int s_wait_cycles[5] = { 960, 46, 226, 1006, 226 };

@@ -40,17 +40,17 @@ const int PPU::s_obj_size[4][4][2] = {
   }
 };
 
-void PPU::RenderLayerOAM(bool bitmap_mode) {  
+void PPU::RenderLayerOAM(int line, bool bitmap_mode) {
   /* 2d-affine transform matrix (pa, pb, pc, pd). */
   std::int16_t transform[4];
 
   int tile_num;
   std::uint16_t pixel;
-  
+
   line_contains_alpha_obj = false;
-  
+
   int cycles = 0;
-  int cycle_limit = mmio.dispcnt.hblank_oam_access ? 954 : 1210;
+  int cycle_limit = mmio_copy[line].dispcnt.hblank_oam_access ? 954 : 1210;
 
   /* TODO: check if there is a faster way to initialize the array. */
   for (int x = 0; x < 240; x++) {
@@ -138,8 +138,6 @@ void PPU::RenderLayerOAM(bool bitmap_mode) {
       transform[2] = 0;
       transform[3] = 0x100;
     }
-    
-    int line = mmio.vcount;
 
     /* Bail out if scanline is outside OBJ's view rectangle. */
     if (line < (y - half_height) || line >= (y + half_height)) {
@@ -156,19 +154,19 @@ void PPU::RenderLayerOAM(bool bitmap_mode) {
     std::uint32_t tile_base = 0x10000;
 
     if (is_256) {
-      if ((number & 1) && mmio.dispcnt.oam_mapping_1d) {
+      if ((number & 1) && mmio_copy[line].dispcnt.oam_mapping_1d) {
         tile_base = 0x10020;
       }
       number /= 2;
     }
 
     int mosaic_x = 0;
-    
+
     if (mosaic) {
-      mosaic_x = (x - half_width) % mmio.mosaic.obj.size_x;
-      local_y -= mmio.mosaic.obj._counter_y;
+      mosaic_x = (x - half_width) % mmio_copy[line].mosaic.obj.size_x;
+      local_y -= mmio_copy[line].mosaic.obj._counter_y;
     }
-    
+
     if (affine) {
       cycles += 10;
     }
@@ -184,10 +182,10 @@ void PPU::RenderLayerOAM(bool bitmap_mode) {
 
       cycles += cycles_per_pixel;
 
-      if (mosaic && (++mosaic_x == mmio.mosaic.obj.size_x)) {
+      if (mosaic && (++mosaic_x == mmio_copy[line].mosaic.obj.size_x)) {
         mosaic_x = 0;
       }
-      
+
       if (global_x < 0 || global_x >= 240) {
         continue;
       }
@@ -209,18 +207,18 @@ void PPU::RenderLayerOAM(bool bitmap_mode) {
       int block_x = tex_x / 8;
       int block_y = tex_y / 8;
 
-      if (mmio.dispcnt.oam_mapping_1d) {
+      if (mmio_copy[line].dispcnt.oam_mapping_1d) {
         tile_num = number + block_y * (width / 8);
       } else {
         tile_num = number + block_y * (is_256 ? 16 : 32); /* check me */
       }
-      
+
       tile_num += block_x;
 
       if (bitmap_mode && tile_num < (is_256 ? 256 : 512)) {
         continue;
       }
-      
+
       if (is_256) {
         pixel = DecodeTilePixel8BPP(tile_base, tile_num, tile_x, tile_y, true);
       } else {
@@ -228,7 +226,7 @@ void PPU::RenderLayerOAM(bool bitmap_mode) {
       }
 
       auto& point = buffer_obj[global_x];
-      
+
       if (pixel != s_color_transparent) {
         if (mode == OBJ_WINDOW) {
           point.window = 1;

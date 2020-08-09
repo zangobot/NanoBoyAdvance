@@ -9,24 +9,25 @@
 
 namespace nba::core {
 
-void PPU::RenderLayerText(int id) {
-  auto const& bgcnt  = mmio.bgcnt[id];
-  auto const& mosaic = mmio.mosaic.bg;
-  
+// FIXME: proper naming for line variables.
+void PPU::RenderLayerText(int _line, int id) {
+  auto const& bgcnt  = mmio_copy[_line].bgcnt[id];
+  auto const& mosaic = mmio_copy[_line].mosaic.bg;
+
   std::uint32_t tile_base = bgcnt.tile_block * 16384;
-   
-  int line = mmio.bgvofs[id] + mmio.vcount;
-  
+
+  int line = mmio_copy[_line].bgvofs[id] + mmio_copy[_line].vcount;
+
   /* Apply vertical mosaic */
   if (bgcnt.mosaic_enable) {
     line -= mosaic._counter_y;
   }
 
-  int draw_x = -(mmio.bghofs[id] % 8);
-  int grid_x =   mmio.bghofs[id] / 8;
+  int draw_x = -(mmio_copy[_line].bghofs[id] % 8);
+  int grid_x =   mmio_copy[_line].bghofs[id] / 8;
   int grid_y = line / 8;
   int tile_y = line % 8;
-  
+
   int screen_x = (grid_x / 32) % 2;
   int screen_y = (grid_y / 32) % 2;
 
@@ -36,16 +37,16 @@ void PPU::RenderLayerText(int id) {
   std::uint16_t* buffer = buffer_bg[id];
   std::int32_t  last_encoder = -1;
   std::uint16_t encoder;
-  
+
   grid_x %= 32;
-  
+
   std::uint32_t base_adjust;
-  
+
   switch (bgcnt.size) {
     case 0:
       base_adjust = 0;
       break;
-    case 1: 
+    case 1:
       base += screen_x * 2048;
       base_adjust = 2048;
       break;
@@ -58,15 +59,15 @@ void PPU::RenderLayerText(int id) {
       base_adjust = 2048;
       break;
   }
-  
+
   if (screen_x == 1) {
     base_adjust *= -1;
   }
-  
+
   do {
     do {
       std::uint32_t offset = base + grid_x++ * 2;
-      
+
       encoder = (vram[offset + 1] << 8) | vram[offset];
 
       /* TODO: speed tile decoding itself up. */
@@ -109,7 +110,7 @@ void PPU::RenderLayerText(int id) {
         }
       }
     } while (grid_x < 32);
-    
+
     base += base_adjust;
     base_adjust *= -1;
     grid_x = 0;

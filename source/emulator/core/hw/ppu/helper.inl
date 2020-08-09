@@ -78,25 +78,26 @@ auto DecodeTilePixel8BPP(std::uint32_t base, int number, int x, int y, bool spri
   }
 }
 
-void AffineRenderLoop(int id,
+void AffineRenderLoop(int line,
+                      int id,
                       int width,
                       int height,
                       std::function<void(int, int, int)> render_func) {
-  auto const& bg = mmio.bgcnt[2 + id];
-  auto const& mosaic = mmio.mosaic.bg;
+  auto const& bg = mmio_copy[line].bgcnt[2 + id];
+  auto const& mosaic = mmio_copy[line].mosaic.bg;
   std::uint16_t* buffer = buffer_bg[2 + id];
-  
-  std::int32_t ref_x = mmio.bgx[id]._current;
-  std::int32_t ref_y = mmio.bgy[id]._current;
-  std::int16_t pa = mmio.bgpa[id];
-  std::int16_t pc = mmio.bgpc[id];
-  
+
+  std::int32_t ref_x = mmio_copy[line].bgx[id]._current;
+  std::int32_t ref_y = mmio_copy[line].bgy[id]._current;
+  std::int16_t pa = mmio_copy[line].bgpa[id];
+  std::int16_t pc = mmio_copy[line].bgpc[id];
+
   int mosaic_x = 0;
-  
+
   for (int _x = 0; _x < 240; _x++) {
     std::int32_t x = ref_x >> 8;
     std::int32_t y = ref_y >> 8;
-    
+
     if (bg.mosaic_enable) {
       if (++mosaic_x == mosaic.size_x) {
         ref_x += mosaic.size_x * pa;
@@ -107,14 +108,14 @@ void AffineRenderLoop(int id,
       ref_x += pa;
       ref_y += pc;
     }
-    
+
     if (bg.wraparound) {
       if (x >= width) {
         x %= width;
       } else if (x < 0) {
         x = width + (x % width);
       }
-      
+
       if (y >= height) {
         y %= height;
       } else if (y < 0) {
@@ -124,7 +125,7 @@ void AffineRenderLoop(int id,
       buffer[_x] = s_color_transparent;
       continue;
     }
-    
+
     render_func(_x, (int)x, (int)y);
   }
 }

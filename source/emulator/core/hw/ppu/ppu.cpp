@@ -36,6 +36,7 @@ void PPU::Reset() {
   mmio.dispcnt.Reset();
   mmio.dispstat.Reset();
   mmio.vcount = 0;
+  render_thread_lc = 0;
 
   for (int i = 0; i < 4; i++) {
     mmio.bgcnt[i].Reset();
@@ -140,7 +141,9 @@ void PPU::OnScanlineComplete(int cycles_late) {
     irq_controller->Raise(InterruptSource::HBlank);
   }
 
-  RenderScanline();
+  // Copy current MMIO state for later usage by the render thread.
+  mmio_copy[mmio.vcount] = mmio;
+  render_thread_lc++;
 }
 
 void PPU::OnHblankSearchComplete(int cycles_late) {
@@ -163,6 +166,23 @@ void PPU::OnHblankComplete(int cycles_late) {
   CheckVerticalCounterIRQ();
 
   if (vcount == 160) {
+    // FIXME: spawn a thread for the first frame!
+    // Wait for the render thread to complete the old frame
+    // before we start submitting new data for the new frame.
+    render_thread_mutex.lock();
+    render_thread_lc = 0;
+    render_thread_mutex.unlock();
+    // TODO: do not spawn a thread everytime we start a new frame?
+    render_thread = std::thread{[this]() {
+      std::lock_guard guard{render_thread_mutex};
+      int line = 0;
+      while (line < 160) {
+        if (line < render_thread_lc)
+          RenderScanline(line++);
+      }
+    }};
+    render_thread.detach();
+    
     config->video_dev->Draw(output);
 
     SetNextEvent(Phase::VBLANK_SCANLINE, cycles_late);
