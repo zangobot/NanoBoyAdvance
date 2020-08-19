@@ -95,9 +95,6 @@ void PPU::RenderLayerOAM(int line, bool bitmap_mode) {
     width  = s_obj_size[shape][size][0];
     height = s_obj_size[shape][size][1];
 
-    int rect_width  = width;
-    int rect_height = height;
-
     int half_width  = width / 2;
     int half_height = height / 2;
 
@@ -121,8 +118,6 @@ void PPU::RenderLayerOAM(int line, bool bitmap_mode) {
       if (attr0b9) {
         x += half_width;
         y += half_height;
-        rect_width  *= 2;
-        rect_height *= 2;
         half_width  *= 2;
         half_height *= 2;
       }
