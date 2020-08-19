@@ -105,7 +105,7 @@ void PPU::RenderLayerOAM(int line, bool bitmap_mode) {
     x += half_width;
     y += half_height;
 
-    int cycles_per_pixel = 1;
+    int cycles_per_pixel;
 
     /* Load transform matrix. */
     if (affine) {
@@ -137,6 +137,8 @@ void PPU::RenderLayerOAM(int line, bool bitmap_mode) {
       transform[1] = 0;
       transform[2] = 0;
       transform[3] = 0x100;
+
+      cycles_per_pixel = 1;
     }
 
     /* Bail out if scanline is outside OBJ's view rectangle. */
@@ -152,13 +154,6 @@ void PPU::RenderLayerOAM(int line, bool bitmap_mode) {
     int is_256  = (attr0 >> 13) & 1;
 
     std::uint32_t tile_base = 0x10000;
-
-    if (is_256) {
-      if ((number & 1) && mmio_copy[line].dispcnt.oam_mapping_1d) {
-        tile_base = 0x10020;
-      }
-      number /= 2;
-    }
 
     int mosaic_x = 0;
 
@@ -207,22 +202,34 @@ void PPU::RenderLayerOAM(int line, bool bitmap_mode) {
       int block_x = tex_x / 8;
       int block_y = tex_y / 8;
 
-      if (mmio_copy[line].dispcnt.oam_mapping_1d) {
-        tile_num = number + block_y * (width / 8);
-      } else {
-        tile_num = number + block_y * (is_256 ? 16 : 32); /* check me */
-      }
-
-      tile_num += block_x;
-
-      if (bitmap_mode && tile_num < (is_256 ? 256 : 512)) {
-        continue;
-      }
-
       if (is_256) {
-        pixel = DecodeTilePixel8BPP(tile_base, tile_num, tile_x, tile_y, true);
+        if (mmio_copy[line].dispcnt.oam_mapping_1d) {
+          tile_num = number + block_y * (width / 4);
+        } else {
+          tile_num = (number & ~1) + block_y * 32;
+        }
+
+        tile_num += block_x * 2;
+
+        if (bitmap_mode && tile_num < 512) {
+          continue;
+        }
+
+        pixel = DecodeTilePixel8BPP(tile_base + tile_num * 32, tile_x, tile_y, true);
       } else {
-        pixel = DecodeTilePixel4BPP(tile_base, palette, tile_num, tile_x, tile_y);
+        if (mmio_copy[line].dispcnt.oam_mapping_1d) {
+          tile_num = number + block_y * (width / 8);
+        } else {
+          tile_num = number + block_y * 32;
+        }
+
+        tile_num += block_x;
+
+        if (bitmap_mode && tile_num < 512) {
+          continue;
+        }
+
+        pixel = DecodeTilePixel4BPP(tile_base + tile_num * 32, palette, tile_x, tile_y);
       }
 
       auto& point = buffer_obj[global_x];
