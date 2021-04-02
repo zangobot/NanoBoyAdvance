@@ -139,7 +139,7 @@ auto CPU::Read_(std::uint32_t address, Access access) -> T {
     case REGION_ROM_W2_H: {
       // 0x0DXXXXXX may be used to access EEPROM backup.
       if (std::is_same_v<T, std::uint16_t> && IsEEPROMAccess(address)) {
-        PrefetchStepROM(address, cycles);
+        PrefetchStepROM(address, access, cycles);
         // TODO: this works in most cases but is not correct.
         if (!dma.IsRunning()) {
           return 1;
@@ -153,32 +153,36 @@ auto CPU::Read_(std::uint32_t address, Access access) -> T {
     case REGION_ROM_W1_L:
     case REGION_ROM_W1_H:
     case REGION_ROM_W2_L: {
-      PrefetchStepROM(address, cycles);
-      address &= memory.rom.mask;
-      if (IsGPIOAccess(address) && memory.rom.gpio->IsReadable()) {
-        // TODO: verify 8-bit and 16-bit read behavior.
-        if constexpr (std::is_same_v<T, std::uint32_t>) {
-          auto lsw = memory.rom.gpio->Read(address + 0);
-          auto msw = memory.rom.gpio->Read(address + 2);
-          return (msw << 16) | lsw;
+      cycles = cycles16[int(access)][page];
+
+      auto read16 = [this](std::uint32_t address, Access access, int cycles) -> std::uint16_t {
+        PrefetchStepROM(address, access, cycles);
+        address &= memory.rom.mask;
+        if (IsGPIOAccess(address) && memory.rom.gpio->IsReadable()) {
+          return memory.rom.gpio->Read(address);
         }
-        return memory.rom.gpio->Read(address);
+        if (address >= memory.rom.size) {
+          return address >> 1;
+        }
+        return Read<std::uint16_t>(memory.rom.data.get(), address);
+      };
+      
+      if constexpr (std::is_same_v<T, std::uint32_t>) {
+        auto lsw = read16(address | 0, access, cycles);
+        auto msw = read16(address | 2, Access::Sequential, cycles16[int(Access::Sequential)][page]);
+
+        return lsw | (msw << 16);
       }
-      if (address >= memory.rom.size) {
-        auto value = address >> 1;
-        if constexpr (std::is_same_v<T, std::uint32_t>) {
-          return (value & 0xFFFF) | ((value + 1) << 16);
-        }
-        if constexpr (std::is_same_v<T, std::uint16_t>) {
-          return value;
-        }
-        return value >> ((address & 1) * 8);
+      
+      if constexpr (std::is_same_v<T, std::uint16_t>) {
+        return read16(address, access, cycles);
       }
-      return Read<T>(memory.rom.data.get(), address);
+      
+      return read16(address & ~1, access, cycles) >> ((address & 1) * 8);
     }
     case REGION_SRAM_1:
     case REGION_SRAM_2: {
-      PrefetchStepROM(address, cycles);
+      PrefetchStepROM(address, access, cycles);
       address &= 0x0EFFFFFF;
       std::uint32_t value = 0xFF;
       if (memory.rom.backup_sram) {
@@ -280,7 +284,7 @@ void CPU::Write_(std::uint32_t address, T value, Access access) {
     case REGION_ROM_W0_L: case REGION_ROM_W0_H:
     case REGION_ROM_W1_L: case REGION_ROM_W1_H:
     case REGION_ROM_W2_L: case REGION_ROM_W2_H: {
-      PrefetchStepROM(address, cycles);
+      PrefetchStepROM(address, access, cycles);
       if (std::is_same_v<T, std::uint16_t> && page == REGION_ROM_W2_H && IsEEPROMAccess(address)) {
         // TODO: this probably isn't accurate at all.
         if (dma.IsRunning()) {
@@ -304,7 +308,7 @@ void CPU::Write_(std::uint32_t address, T value, Access access) {
     }
     case REGION_SRAM_1:
     case REGION_SRAM_2: {
-      PrefetchStepROM(address, cycles);
+      PrefetchStepROM(address, access, cycles);
       address &= 0x0EFFFFFF;
       if (memory.rom.backup_sram) {
         // TODO: why is it seemingly aware of alignment, when the address

@@ -172,7 +172,7 @@ private:
   void Tick(int cycles);
   void Idle() final;
   void PrefetchStepRAM(int cycles);
-  void PrefetchStepROM(std::uint32_t address, int cycles);
+  void PrefetchStepROM(std::uint32_t address, Access access, int cycles);
   void UpdateMemoryDelayTable();
 
   void M4ASearchForSampleFreqSet();

@@ -95,6 +95,8 @@ void CPU::Tick(int cycles) {
     if (prefetch.countdown <= 0) {
       prefetch.count++;
       prefetch.active = false;
+      // LOG_DEBUG("PF: completed prefetching a 16-bit word")
+      //prefetch.last_address += sizeof(std::uint16_t);
     }
   }
 }
@@ -110,52 +112,28 @@ void CPU::PrefetchStepRAM(int cycles) {
     return;
   }
 
-  auto thumb = state.cpsr.f.thumb;
-  auto r15 = state.r15;
-
-  /* During any execute cycle except for the fetch cycle, 
-   * r15 will be three instruction ahead instead of two.
-   */
-  if (!code) {
-    r15 -= thumb ? 2 : 4;
-  }
-
-  if (!prefetch.active && prefetch.rom_code_access && prefetch.count < prefetch.capacity) {
-    if (prefetch.count == 0) {
-      if (thumb) {
-        prefetch.opcode_width = 2;
-        prefetch.capacity = 8;
-        prefetch.duty = cycles16[int(Access::Sequential)][r15 >> 24];
-      } else {
-        prefetch.opcode_width = 4;
-        prefetch.capacity = 4;
-        prefetch.duty = cycles32[int(Access::Sequential)][r15 >> 24];
-      }
-      prefetch.last_address = r15 + prefetch.opcode_width;
-      prefetch.head_address = prefetch.last_address;
-    } else {
-      prefetch.last_address += prefetch.opcode_width;
-    }
-
+  if (!prefetch.active && prefetch.count < prefetch.capacity) {
     prefetch.countdown = prefetch.duty;
     prefetch.active = true;
+    // CHECKME: could go into Tick() when the access completes
+    prefetch.last_address += prefetch.opcode_width;
   }
 
   Tick(cycles);
 }
 
-void CPU::PrefetchStepROM(std::uint32_t address, int cycles) {
+void CPU::PrefetchStepROM(std::uint32_t address, Access access, int cycles) {
   // TODO: bypass prefetch ROM step during DMA?
   if (unlikely(!mmio.waitcnt.prefetch)) {
     Tick(cycles);
     return;
   }
 
-  prefetch.rom_code_access = code;
+  // TODO: the usage of the variable "code" here is questionable at best.
 
   if (prefetch.active) {
     if (code && address == prefetch.last_address) {
-      // Complete the load and consume the fetched (half)word right away.
+      // Complete the load and consume the fetched halfword right away.
       Tick(prefetch.countdown);
       prefetch.count--;
       return;
@@ -171,8 +149,45 @@ void CPU::PrefetchStepROM(std::uint32_t address, int cycles) {
       PrefetchStepRAM(1);
       return;
     } else {
+      // prefetch.count = 0;
+
+      // LOG_DEBUG("PF: NSEQ burst begin @ 0x{0:08X}", address);
+
+      address += sizeof(std::uint16_t);
+
+      prefetch.active = false;
       prefetch.count = 0;
+
+      // TODO: except for the duty this can be hardcoded.
+      prefetch.opcode_width = 2;
+      prefetch.capacity = 8;
+      prefetch.duty = cycles16[int(Access::Sequential)][address >> 24];
+
+      // TODO: eventually we might not need to keep track of head and last adddress?!
+      // As long as the transfers are sequential we know the addresses will match.
+      prefetch.head_address = address;
+      prefetch.last_address = address;
     }
+  }
+
+  // Non-sequential cycle is the start of a (potential) burst transfer.
+  if (access == Access::Nonsequential) {
+    // LOG_DEBUG("PF: NSEQ burst begin @ 0x{0:08X}", address);
+
+    // address += sizeof(std::uint16_t);
+
+    // prefetch.active = false;
+    // prefetch.count = 0;
+
+    // // TODO: except for the duty this can be hardcoded.
+    // prefetch.opcode_width = 2;
+    // prefetch.capacity = 8;
+    // prefetch.duty = cycles16[int(Access::Sequential)][address >> 24];
+
+    // // TODO: eventually we might not need to keep track of head and last adddress?!
+    // // As long as the transfers are sequential we know the addresses will match.
+    // prefetch.head_address = address;
+    // prefetch.last_address = address;
   }
 
   Tick(cycles);
