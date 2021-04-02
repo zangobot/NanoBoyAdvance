@@ -89,6 +89,8 @@ void CPU::Tick(int cycles) {
 
   scheduler.AddCycles(cycles);
 
+  // TODO: removing the DMA condition breaks some tests,
+  // but I'm not sure how exactly DMA and the prefetch unit relate in hardware.
   if (prefetch.active && !bus_is_controlled_by_dma) {
     prefetch.countdown -= cycles;
 
@@ -113,7 +115,7 @@ void CPU::PrefetchStepRAM(int cycles) {
   }
 
   if (prefetch.blorgh && !prefetch.active && prefetch.count < kPrefetchBufferCapacity) {
-    prefetch.countdown = prefetch.duty;
+    prefetch.countdown += prefetch.duty;
     prefetch.active = true;
     prefetch.last_address += sizeof(std::uint16_t);
   }
@@ -128,7 +130,12 @@ void CPU::PrefetchStepROM(std::uint32_t address, Access access, int cycles) {
     return;
   }
 
+  // if (state.r15 == address && prefetch.count != 0 && address != prefetch.head_address && state.r15 > prefetch.head_address && state.r15 <= prefetch.last_address) {
+  //   LOG_ERROR("SOMETHING IS GOING VEWY WRONG UwU")
+  // }
+
   // Check if the transfer hits the prefetch buffer and don't relay to the Game Pak in that case.
+  // TODO: test if data reads can dequeue halfwords from the buffer.
   if (prefetch.count != 0 && address == prefetch.head_address) {
     prefetch.count--;
     prefetch.head_address += sizeof(std::uint16_t);
@@ -136,16 +143,13 @@ void CPU::PrefetchStepROM(std::uint32_t address, Access access, int cycles) {
     return;
   }
 
-  // // Abort burst transfer and complete the final word transfer if it is the requested data.
-  // // TODO: we probably shouldn't do this unless the access actually goes to the Game Pak (i.e. does not hit the prefetch buffer)
-  // if (prefetch.active) {
-  //   if (address == prefetch.last_address) {
-  //     Tick(prefetch.countdown);
-  //     prefetch.count--;
-  //     return;
-  //   }
-  //   // TODO: might end up being redundant.
-  //   prefetch.active = false;
+  // // Hmm.... is this really logical?
+  // // The fact that this works seems to rather imply that the head address is incorrect?
+  // if (prefetch.count != 0 && address >= prefetch.head_address && address <= prefetch.last_address) {
+  //   prefetch.count -= 1 + ((address - prefetch.head_address) >> 1);
+  //   prefetch.head_address = address + sizeof(std::uint16_t);
+  //   PrefetchStepRAM(1);
+  //   return;
   // }
 
   // If we already are prefetching the requested data, just complete the fetch then.
@@ -154,18 +158,26 @@ void CPU::PrefetchStepROM(std::uint32_t address, Access access, int cycles) {
     prefetch.count--;
     return;
   }
-  
+
+  // if (prefetch.active) {
+  //   LOG_DEBUG("Aborting prefetch. remaining={0}", prefetch.countdown);
+  // }
+
   // Access was relayed to the Game Pak, this resets the burst transfer.
   prefetch.active = false;
-  prefetch.duty = cycles16[int(Access::Sequential)][address >> 24];
-
-  // TODO: can we get rid of the head & tail addresses?
-  // (I don't think we actually can...)
-  prefetch.head_address = address + sizeof(std::uint16_t);
-  prefetch.last_address = address;
   prefetch.count = 0;
-
   prefetch.blorgh = code;
+  
+  if (prefetch.blorgh) {
+    // TODO: what happens if one changes the waitstates during the burst transfer?
+    prefetch.duty = cycles16[int(Access::Sequential)][address >> 24];
+    prefetch.countdown = 0;
+
+    // TODO: can we get rid of the head & tail addresses?
+    // (I don't think we actually can...)
+    prefetch.head_address = address + sizeof(std::uint16_t);
+    prefetch.last_address = address;
+  }
 
   Tick(cycles);
 }
