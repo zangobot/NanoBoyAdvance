@@ -95,8 +95,6 @@ void CPU::Tick(int cycles) {
     if (prefetch.countdown <= 0) {
       prefetch.count++;
       prefetch.active = false;
-      // LOG_DEBUG("PF: completed prefetching a 16-bit word")
-      //prefetch.last_address += sizeof(std::uint16_t);
     }
   }
 }
@@ -106,17 +104,18 @@ void CPU::Idle() {
 }
 
 void CPU::PrefetchStepRAM(int cycles) {
+  static constexpr int kPrefetchBufferCapacity = 8;
+
   // TODO: bypass prefetch RAM step during DMA?
   if (unlikely(!mmio.waitcnt.prefetch)) {
     Tick(cycles);
     return;
   }
 
-  if (!prefetch.active && prefetch.count < prefetch.capacity) {
+  if (prefetch.blorgh && !prefetch.active && prefetch.count < kPrefetchBufferCapacity) {
     prefetch.countdown = prefetch.duty;
     prefetch.active = true;
-    // CHECKME: could go into Tick() when the access completes
-    prefetch.last_address += prefetch.opcode_width;
+    prefetch.last_address += sizeof(std::uint16_t);
   }
 
   Tick(cycles);
@@ -129,66 +128,44 @@ void CPU::PrefetchStepROM(std::uint32_t address, Access access, int cycles) {
     return;
   }
 
-  // TODO: the usage of the variable "code" here is questionable at best.
-
-  if (prefetch.active) {
-    if (code && address == prefetch.last_address) {
-      // Complete the load and consume the fetched halfword right away.
-      Tick(prefetch.countdown);
-      prefetch.count--;
-      return;
-    }
-
-    prefetch.active = false;
+  // Check if the transfer hits the prefetch buffer and don't relay to the Game Pak in that case.
+  if (prefetch.count != 0 && address == prefetch.head_address) {
+    prefetch.count--;
+    prefetch.head_address += sizeof(std::uint16_t);
+    PrefetchStepRAM(1);
+    return;
   }
 
-  if (code && prefetch.count != 0) {
-    if (address == prefetch.head_address) {
-      prefetch.count--;
-      prefetch.head_address += prefetch.opcode_width;
-      PrefetchStepRAM(1);
-      return;
-    } else {
-      // prefetch.count = 0;
+  // // Abort burst transfer and complete the final word transfer if it is the requested data.
+  // // TODO: we probably shouldn't do this unless the access actually goes to the Game Pak (i.e. does not hit the prefetch buffer)
+  // if (prefetch.active) {
+  //   if (address == prefetch.last_address) {
+  //     Tick(prefetch.countdown);
+  //     prefetch.count--;
+  //     return;
+  //   }
+  //   // TODO: might end up being redundant.
+  //   prefetch.active = false;
+  // }
 
-      // LOG_DEBUG("PF: NSEQ burst begin @ 0x{0:08X}", address);
-
-      address += sizeof(std::uint16_t);
-
-      prefetch.active = false;
-      prefetch.count = 0;
-
-      // TODO: except for the duty this can be hardcoded.
-      prefetch.opcode_width = 2;
-      prefetch.capacity = 8;
-      prefetch.duty = cycles16[int(Access::Sequential)][address >> 24];
-
-      // TODO: eventually we might not need to keep track of head and last adddress?!
-      // As long as the transfers are sequential we know the addresses will match.
-      prefetch.head_address = address;
-      prefetch.last_address = address;
-    }
+  // If we already are prefetching the requested data, just complete the fetch then.
+  if (prefetch.active && address == prefetch.last_address) {
+    Tick(prefetch.countdown);
+    prefetch.count--;
+    return;
   }
+  
+  // Access was relayed to the Game Pak, this resets the burst transfer.
+  prefetch.active = false;
+  prefetch.duty = cycles16[int(Access::Sequential)][address >> 24];
 
-  // Non-sequential cycle is the start of a (potential) burst transfer.
-  if (access == Access::Nonsequential) {
-    // LOG_DEBUG("PF: NSEQ burst begin @ 0x{0:08X}", address);
+  // TODO: can we get rid of the head & tail addresses?
+  // (I don't think we actually can...)
+  prefetch.head_address = address + sizeof(std::uint16_t);
+  prefetch.last_address = address;
+  prefetch.count = 0;
 
-    // address += sizeof(std::uint16_t);
-
-    // prefetch.active = false;
-    // prefetch.count = 0;
-
-    // // TODO: except for the duty this can be hardcoded.
-    // prefetch.opcode_width = 2;
-    // prefetch.capacity = 8;
-    // prefetch.duty = cycles16[int(Access::Sequential)][address >> 24];
-
-    // // TODO: eventually we might not need to keep track of head and last adddress?!
-    // // As long as the transfers are sequential we know the addresses will match.
-    // prefetch.head_address = address;
-    // prefetch.last_address = address;
-  }
+  prefetch.blorgh = code;
 
   Tick(cycles);
 }
