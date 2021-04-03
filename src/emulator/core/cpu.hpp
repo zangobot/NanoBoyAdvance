@@ -175,16 +175,10 @@ private:
   void PrefetchStepROM(std::uint32_t address, int cycles);
   void UpdateMemoryDelayTable();
 
-  void M4ASearchForSampleFreqSet();
-  void M4ASampleFreqSetHook();
-  void M4AFixupPercussiveChannels();
-
   void CheckKeypadInterrupt();
   void OnKeyPress();
 
-  M4ASoundInfo* m4a_soundinfo;
-  int m4a_original_freq = 0;
-  std::uint32_t m4a_setfreq_address = 0;
+  void SearchM4ASoundDriverMain();
 
   /* GamePak prefetch buffer state. */
   struct Prefetch {
@@ -211,6 +205,9 @@ private:
     { 1, 1, 6, 1, 1, 2, 2, 1, 0, 0, 0, 0, 0, 0, 0, 1 },
     { 1, 1, 6, 1, 1, 2, 2, 1, 0, 0, 0, 0, 0, 0, 0, 1 }
   };
+
+  std::uint32_t soundmain_address;
+  std::uint32_t soundinfo_ptr_address;
 
   static constexpr int s_ws_nseq[4] = { 4, 3, 2, 8 }; /* Non-sequential SRAM/WS0/WS1/WS2 */
   static constexpr int s_ws_seq0[2] = { 2, 1 };       /* Sequential WS0 */

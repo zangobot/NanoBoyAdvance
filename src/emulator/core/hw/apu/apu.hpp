@@ -9,7 +9,9 @@
 
 #include <common/dsp/resampler.hpp>
 #include <common/dsp/ring_buffer.hpp>
+#include <common/m4a.hpp>
 #include <emulator/config/config.hpp>
+#include <emulator/core/arm/memory.hpp>
 #include <emulator/core/hw/dma.hpp>
 #include <emulator/core/scheduler.hpp>
 #include <mutex>
@@ -24,10 +26,16 @@ namespace nba::core {
 
 class APU {
 public:
-  APU(Scheduler& scheduler, DMA& dma, std::shared_ptr<Config>);
+  APU(
+    Scheduler& scheduler,
+    DMA& dma,
+    arm::MemoryBase& memory,
+    std::shared_ptr<Config>
+  );
 
   void Reset();
   void OnTimerOverflow(int timer_id, int times, int samplerate);
+  void OnSoundDriverMainCalled(M4ASoundInfo* soundinfo);
 
   struct MMIO {
     MMIO(Scheduler& scheduler)
@@ -63,6 +71,7 @@ private:
 
   Scheduler& scheduler;
   DMA& dma;
+  arm::MemoryBase& memory;
   std::shared_ptr<Config> config;
   int resolution_old = 0;
 };

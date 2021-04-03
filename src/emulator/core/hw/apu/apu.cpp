@@ -14,14 +14,23 @@
 
 #include "apu.hpp"
 
+// FIXME
+#include <fstream>
+static std::ofstream dump{"audio_out.bin", std::ios::binary};
+
 namespace nba::core {
 
 // See callback.cpp for implementation
 void AudioCallback(APU* apu, std::int16_t* stream, int byte_len);
 
-APU::APU(Scheduler& scheduler, DMA& dma, std::shared_ptr<Config> config)
-    : mmio(scheduler)
+APU::APU(
+  Scheduler& scheduler,
+  DMA& dma,
+  arm::MemoryBase& memory,
+  std::shared_ptr<Config> config
+)   : mmio(scheduler)
     , scheduler(scheduler)
+    , memory(memory)
     , dma(dma)
     , config(config) {
 }
@@ -111,6 +120,67 @@ void APU::OnTimerOverflow(int timer_id, int times, int samplerate) {
         dma.Request(occasion[fifo_id]);
       }
     }
+  }
+}
+
+void APU::OnSoundDriverMainCalled(M4ASoundInfo* soundinfo) {
+  // This is the M4A/MP2K HLE audio mixer
+
+  // Target sample rate it 65kHz, SoundMain() is called 60 times per second.
+  static constexpr int kSampleCount = 65536 / 60;
+
+  using Access = arm::MemoryBase::Access;
+
+  // TODO: move this to the member variables, nerd.
+  static struct {
+    bool forward_loop;
+    std::uint32_t frequency;
+    // TODO loop info etc
+    std::uint32_t number_of_samples;
+    std::uint32_t data_address;
+    std::uint32_t current_sample_index;
+  } channel_cache[kM4AMaxDirectSoundChannels];
+
+  for (int i = 0; i < kM4AMaxDirectSoundChannels; i++) {
+    if (soundinfo->channels[i].status == 0x80) {
+      auto wav_address = soundinfo->channels[i].wav;
+      
+      // TODO: do not generate bus cycles, you nerd.
+      channel_cache[i].frequency = memory.ReadWord(wav_address + 4, Access::Nonsequential);
+      channel_cache[i].number_of_samples = memory.ReadWord(wav_address + 12, Access::Nonsequential);
+      channel_cache[i].data_address = wav_address + 16;
+      channel_cache[i].current_sample_index = 0;
+
+      LOG_ERROR("[{0}] frequency={1} n_samples={2}", i, channel_cache[i].frequency, channel_cache[i].number_of_samples);
+    }
+  }
+
+  for (int i = 0; i < kSampleCount; i++) {
+    float samples[2] { 0.0 };
+
+    // TODO: looping like this will be really, really inefficient.
+    for (int j = 0; j < kM4AMaxDirectSoundChannels; j++) {
+      auto& channel = soundinfo->channels[j];
+
+      // For now let's ignore channels that are definitely off.
+      if (channel.status == 0) {
+        continue;
+      }
+
+      // Let's ignore percussive channels for now.
+      if (channel.type == 8) {
+        continue;
+      }
+
+      auto frequency = channel.freq / 32.0; // fixme
+      auto sample = std::sin(2 * 3.1415 * frequency * i / 65536);
+      samples[0] += sample * channel.leftVolume  / 255.0;
+      samples[1] += sample * channel.rightVolume / 255.0;
+
+      // LOG_ERROR("MP2K HLE: channel[{0}] status=0x{1:02X} wavData=0x{2:08X} freq={3} Hz", i, channel.status, channel.wav, channel.freq >> 4);
+    }
+
+    dump.write((char*)samples, sizeof(samples));
   }
 }
 
