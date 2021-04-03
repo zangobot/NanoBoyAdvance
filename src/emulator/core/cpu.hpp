@@ -189,7 +189,7 @@ private:
   /* GamePak prefetch buffer state. */
   struct Prefetch {
     bool active = false;
-    bool blorgh = false;
+    bool code_burst = false;
     std::uint32_t head_address;
     std::uint32_t last_address;
     int count = 0;

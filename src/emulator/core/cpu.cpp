@@ -114,7 +114,7 @@ void CPU::PrefetchStepRAM(int cycles) {
     return;
   }
 
-  if (prefetch.blorgh && !prefetch.active && prefetch.count < kPrefetchBufferCapacity) {
+  if (prefetch.code_burst && !prefetch.active && prefetch.count < kPrefetchBufferCapacity) {
     prefetch.countdown += prefetch.duty;
     prefetch.active = true;
     prefetch.last_address += sizeof(std::uint16_t);
@@ -130,10 +130,6 @@ void CPU::PrefetchStepROM(std::uint32_t address, Access access, int cycles) {
     return;
   }
 
-  // if (state.r15 == address && prefetch.count != 0 && address != prefetch.head_address && state.r15 > prefetch.head_address && state.r15 <= prefetch.last_address) {
-  //   LOG_ERROR("SOMETHING IS GOING VEWY WRONG UwU")
-  // }
-
   // Check if the transfer hits the prefetch buffer and don't relay to the Game Pak in that case.
   // TODO: test if data reads can dequeue halfwords from the buffer.
   if (prefetch.count != 0 && address == prefetch.head_address) {
@@ -143,38 +139,24 @@ void CPU::PrefetchStepROM(std::uint32_t address, Access access, int cycles) {
     return;
   }
 
-  // // Hmm.... is this really logical?
-  // // The fact that this works seems to rather imply that the head address is incorrect?
-  // if (prefetch.count != 0 && address >= prefetch.head_address && address <= prefetch.last_address) {
-  //   prefetch.count -= 1 + ((address - prefetch.head_address) >> 1);
-  //   prefetch.head_address = address + sizeof(std::uint16_t);
-  //   PrefetchStepRAM(1);
-  //   return;
-  // }
-
   // If we already are prefetching the requested data, just complete the fetch then.
   if (prefetch.active && address == prefetch.last_address) {
+    // ASSERT(prefetch.last_address == prefetch.head_address, "boooo")
     Tick(prefetch.countdown);
     prefetch.count--;
+    prefetch.head_address += sizeof(std::uint16_t);
     return;
   }
-
-  // if (prefetch.active) {
-  //   LOG_DEBUG("Aborting prefetch. remaining={0}", prefetch.countdown);
-  // }
 
   // Access was relayed to the Game Pak, this resets the burst transfer.
   prefetch.active = false;
   prefetch.count = 0;
-  prefetch.blorgh = code;
+  prefetch.code_burst = code;
   
-  if (prefetch.blorgh) {
+  if (prefetch.code_burst) {
     // TODO: what happens if one changes the waitstates during the burst transfer?
     prefetch.duty = cycles16[int(Access::Sequential)][address >> 24];
     prefetch.countdown = 0;
-
-    // TODO: can we get rid of the head & tail addresses?
-    // (I don't think we actually can...)
     prefetch.head_address = address + sizeof(std::uint16_t);
     prefetch.last_address = address;
   }
