@@ -138,7 +138,7 @@ void APU::OnSoundDriverMainCalled(M4ASoundInfo* soundinfo) {
     // TODO loop info etc
     std::uint32_t number_of_samples;
     std::uint32_t data_address;
-    std::uint32_t current_sample_index;
+    float current_sample_index;
   } channel_cache[kM4AMaxDirectSoundChannels];
 
   for (int i = 0; i < kM4AMaxDirectSoundChannels; i++) {
@@ -146,12 +146,13 @@ void APU::OnSoundDriverMainCalled(M4ASoundInfo* soundinfo) {
       auto wav_address = soundinfo->channels[i].wav;
       
       // TODO: do not generate bus cycles, you nerd.
+      channel_cache[i].forward_loop = memory.ReadHalf(wav_address + 2, Access::Nonsequential) != 0;
       channel_cache[i].frequency = memory.ReadWord(wav_address + 4, Access::Nonsequential);
       channel_cache[i].number_of_samples = memory.ReadWord(wav_address + 12, Access::Nonsequential);
       channel_cache[i].data_address = wav_address + 16;
       channel_cache[i].current_sample_index = 0;
 
-      LOG_ERROR("[{0}] frequency={1} n_samples={2}", i, channel_cache[i].frequency, channel_cache[i].number_of_samples);
+      // LOG_ERROR("[{0}] frequency={1} n_samples={2}", i, channel_cache[i].frequency, channel_cache[i].number_of_samples);
     }
   }
 
@@ -172,10 +173,30 @@ void APU::OnSoundDriverMainCalled(M4ASoundInfo* soundinfo) {
         continue;
       }
 
-      auto frequency = channel.freq / 32.0; // fixme
-      auto sample = std::sin(2 * 3.1415 * frequency * i / 65536);
+      auto& cache = channel_cache[j];
+
+      // auto angular_step = cache.frequency / 65536.0 * channel.freq;//float(channel.freq) / cache.frequency;// / 65536;
+
+      // TODO: again, do not generate a bus cycle...
+      // TODO: interpolate between two samples based on the fractional portion of current_sample_index
+      auto sample = std::int8_t(memory.ReadByte(cache.data_address + int(cache.current_sample_index), Access::Sequential)) / 128.0;
+
+      // auto frequency = channel.freq / 32.0; // fixme
+      // auto sample = std::sin(2 * 3.1415 * frequency * i / 65536);
       samples[0] += sample * channel.leftVolume  / 255.0;
       samples[1] += sample * channel.rightVolume / 255.0;
+
+      cache.current_sample_index += float(channel.freq) / (cache.frequency) * (13378.0 / 65536.0);
+
+      if (cache.current_sample_index >= cache.number_of_samples) {
+        if (cache.forward_loop) {
+          // TODO: properly wrap around, respecting the fractional offset
+          // TODO: also use the actual loop point
+          cache.current_sample_index = 0;
+        } else {
+          cache.current_sample_index = cache.number_of_samples - 1;
+        }
+      }
 
       // LOG_ERROR("MP2K HLE: channel[{0}] status=0x{1:02X} wavData=0x{2:08X} freq={3} Hz", i, channel.status, channel.wav, channel.freq >> 4);
     }
