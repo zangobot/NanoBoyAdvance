@@ -82,6 +82,9 @@ void CPU::Reset() {
 }
 
 void CPU::Tick(int cycles) {
+  if (cycles == 0)
+    return;
+
   openbus_from_dma = false;
   
   if (unlikely(dma.IsRunning() && !bus_is_controlled_by_dma)) {
@@ -205,11 +208,11 @@ void CPU::RunFor(int cycles) {
 
         switch (address >> 24) {
           case 0x02: {
-            apu.OnSoundDriverMainCalled((M4ASoundInfo*)&memory.wram[address & 0x3FFFF]);
+            apu.OnSoundDriverMainCalled((M4ASoundInfo*)&memory.wram[address & 0x3FFFF], true);
             break;
           }
           case 0x03: {
-            apu.OnSoundDriverMainCalled((M4ASoundInfo*)&memory.iram[address & 0x7FFF]);
+            apu.OnSoundDriverMainCalled((M4ASoundInfo*)&memory.iram[address & 0x7FFF], true);
             break;
           }
           default: {
@@ -218,6 +221,27 @@ void CPU::RunFor(int cycles) {
           }
         }
       }
+
+      if (unlikely(state.r15 == (soundmain_address + 0x68 + sizeof(std::uint32_t)))) {
+        // TODO: do. not. generate. bus. cycles. idiot.
+        auto address = ReadWord(soundinfo_ptr_address, Access::Sequential);
+
+        switch (address >> 24) {
+          case 0x02: {
+            apu.OnSoundDriverMainCalled((M4ASoundInfo*)&memory.wram[address & 0x3FFFF], false);
+            break;
+          }
+          case 0x03: {
+            apu.OnSoundDriverMainCalled((M4ASoundInfo*)&memory.iram[address & 0x7FFF], false);
+            break;
+          }
+          default: {
+            ASSERT(false, "MP2K HLE: SoundInfo structure is at unsupported address 0x{0:08X}.", address);
+            break;
+          }
+        }
+      }
+
       Run();
     } else {
       Tick(scheduler.GetRemainingCycleCount());

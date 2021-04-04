@@ -15,7 +15,8 @@ class MemoryBase {
 public:
   enum class Access {
     Nonsequential = 0,
-    Sequential  = 1
+    Sequential  = 1,
+    Debug = 2
   };
 
   virtual std::uint8_t  ReadByte(std::uint32_t address, Access access) = 0;

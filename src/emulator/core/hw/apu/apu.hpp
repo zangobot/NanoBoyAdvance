@@ -35,7 +35,7 @@ public:
 
   void Reset();
   void OnTimerOverflow(int timer_id, int times, int samplerate);
-  void OnSoundDriverMainCalled(M4ASoundInfo* soundinfo);
+  void OnSoundDriverMainCalled(M4ASoundInfo* soundinfo, bool start);
 
   struct MMIO {
     MMIO(Scheduler& scheduler)

@@ -123,7 +123,7 @@ void APU::OnTimerOverflow(int timer_id, int times, int samplerate) {
   }
 }
 
-void APU::OnSoundDriverMainCalled(M4ASoundInfo* soundinfo) {
+void APU::OnSoundDriverMainCalled(M4ASoundInfo* soundinfo, bool start) {
   // This is the M4A/MP2K HLE audio mixer
 
   // Target sample rate it 65kHz, SoundMain() is called 60 times per second.
@@ -135,73 +135,74 @@ void APU::OnSoundDriverMainCalled(M4ASoundInfo* soundinfo) {
   static struct {
     bool forward_loop;
     std::uint32_t frequency;
-    // TODO loop info etc
+    std::uint32_t loop_sample_index;
     std::uint32_t number_of_samples;
     std::uint32_t data_address;
     float current_sample_index;
   } channel_cache[kM4AMaxDirectSoundChannels];
 
-  for (int i = 0; i < kM4AMaxDirectSoundChannels; i++) {
-    if (soundinfo->channels[i].status == 0x80) {
-      auto wav_address = soundinfo->channels[i].wav;
-      
-      // TODO: do not generate bus cycles, you nerd.
-      channel_cache[i].forward_loop = memory.ReadHalf(wav_address + 2, Access::Nonsequential) != 0;
-      channel_cache[i].frequency = memory.ReadWord(wav_address + 4, Access::Nonsequential);
-      channel_cache[i].number_of_samples = memory.ReadWord(wav_address + 12, Access::Nonsequential);
-      channel_cache[i].data_address = wav_address + 16;
-      channel_cache[i].current_sample_index = 0;
-
-      // LOG_ERROR("[{0}] frequency={1} n_samples={2}", i, channel_cache[i].frequency, channel_cache[i].number_of_samples);
-    }
+  if (soundinfo->magic & 1) {
+    return;
   }
 
-  for (int i = 0; i < kSampleCount; i++) {
-    float samples[2] { 0.0 };
-
-    // TODO: looping like this will be really, really inefficient.
-    for (int j = 0; j < kM4AMaxDirectSoundChannels; j++) {
-      auto& channel = soundinfo->channels[j];
-
-      // For now let's ignore channels that are definitely off.
-      if (channel.status == 0) {
-        continue;
+  if (start) {
+    for (int i = 0; i < kM4AMaxDirectSoundChannels; i++) {
+      if (soundinfo->channels[i].status == 0x80) {
+        auto wav_address = soundinfo->channels[i].wav;
+        
+        channel_cache[i].forward_loop = memory.ReadHalf(wav_address + 2, Access::Debug) != 0;
+        channel_cache[i].frequency = memory.ReadWord(wav_address + 4, Access::Debug);
+        channel_cache[i].loop_sample_index = memory.ReadWord(wav_address + 8, Access::Debug);
+        channel_cache[i].number_of_samples = memory.ReadWord(wav_address + 12, Access::Debug);
+        channel_cache[i].data_address = wav_address + 16;
+        channel_cache[i].current_sample_index = 0;
       }
+    }
+  } else {
+    for (int i = 0; i < kSampleCount; i++) {
+      float samples[2] { 0.0 };
 
-      // Let's ignore percussive channels for now.
-      if (channel.type == 8) {
-        continue;
-      }
+      // TODO: reverse the order of the loops and write to a temporary buffer instead.
+      for (int j = 0; j < kM4AMaxDirectSoundChannels; j++) {
+        auto& channel = soundinfo->channels[j];
 
-      auto& cache = channel_cache[j];
+        // For now let's ignore channels that are definitely off.
+        if (channel.status == 0) {
+          continue;
+        }
 
-      // auto angular_step = cache.frequency / 65536.0 * channel.freq;//float(channel.freq) / cache.frequency;// / 65536;
+        // Let's ignore percussive channels for now.
+        if (channel.type == 8) {
+          continue;
+        }
 
-      // TODO: again, do not generate a bus cycle...
-      // TODO: interpolate between two samples based on the fractional portion of current_sample_index
-      auto sample = std::int8_t(memory.ReadByte(cache.data_address + int(cache.current_sample_index), Access::Sequential)) / 128.0;
+        auto& cache = channel_cache[j];
 
-      // auto frequency = channel.freq / 32.0; // fixme
-      // auto sample = std::sin(2 * 3.1415 * frequency * i / 65536);
-      samples[0] += sample * channel.leftVolume  / 255.0;
-      samples[1] += sample * channel.rightVolume / 255.0;
+        // TODO: this isn't correct but seems to do the job for now.
+        auto key_freq = (std::uint64_t(channel.freq) << 32) / cache.frequency;
+        auto angular_step = key_freq / 65536.0;//(1.0 / 65536.0) * key_freq / (cache.frequency / 8192.0);
 
-      cache.current_sample_index += float(channel.freq) / (cache.frequency) * (13378.0 / 65536.0);
+        // TODO: interpolate between two samples based on the fractional portion of current_sample_index
+        auto sample = std::int8_t(memory.ReadByte(cache.data_address + int(cache.current_sample_index), Access::Debug)) / 128.0;
 
-      if (cache.current_sample_index >= cache.number_of_samples) {
-        if (cache.forward_loop) {
-          // TODO: properly wrap around, respecting the fractional offset
-          // TODO: also use the actual loop point
-          cache.current_sample_index = 0;
-        } else {
-          cache.current_sample_index = cache.number_of_samples - 1;
+        samples[0] += sample * channel.leftVolume  / 255.0;
+        samples[1] += sample * channel.rightVolume / 255.0;
+
+        cache.current_sample_index += angular_step;
+
+        if (cache.current_sample_index >= cache.number_of_samples) {
+          if (cache.forward_loop) {
+            // TODO: properly wrap around, respecting the fractional offset
+            // TODO: also use the actual loop point
+            cache.current_sample_index = cache.loop_sample_index;
+          } else {
+            cache.current_sample_index = cache.number_of_samples;
+          }
         }
       }
 
-      // LOG_ERROR("MP2K HLE: channel[{0}] status=0x{1:02X} wavData=0x{2:08X} freq={3} Hz", i, channel.status, channel.wav, channel.freq >> 4);
+      dump.write((char*)samples, sizeof(samples));
     }
-
-    dump.write((char*)samples, sizeof(samples));
   }
 }
 
