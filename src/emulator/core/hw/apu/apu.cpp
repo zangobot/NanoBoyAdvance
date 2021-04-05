@@ -156,6 +156,9 @@ void APU::OnSoundDriverMainCalled(M4ASoundInfo* soundinfo, bool start) {
         channel_cache[i].number_of_samples = memory.ReadWord(wav_address + 12, Access::Debug);
         channel_cache[i].data_address = wav_address + 16;
         channel_cache[i].current_sample_index = 0;
+
+        // LOG_ERROR("[{0}] {1} {2}", i, channel_cache[i].frequency, std::pow(2, (180 - soundinfo->channels[i].ky) / 12.0));
+        LOG_ERROR("[{0}] {1} Hz", i, channel_cache[i].frequency / 1024.0);
       }
     }
   } else {
@@ -172,17 +175,30 @@ void APU::OnSoundDriverMainCalled(M4ASoundInfo* soundinfo, bool start) {
         }
 
         // Let's ignore percussive channels for now.
-        if (channel.type == 8) {
-          continue;
-        }
+        // if (channel.type == 8) {
+        //   continue;
+        // }
 
         auto& cache = channel_cache[j];
 
-        // TODO: this isn't correct but seems to do the job for now.
-        auto key_freq = (std::uint64_t(channel.freq) << 32) / cache.frequency;
-        auto angular_step = key_freq / 65536.0;//(1.0 / 65536.0) * key_freq / (cache.frequency / 8192.0);
+        if (cache.frequency == 0) {
+          // Welp, not sure what to do in that case.
+          continue;
+        }
+        // auto angular_step = 0;
 
         // TODO: interpolate between two samples based on the fractional portion of current_sample_index
+        // auto sample = std::int8_t(memory.ReadByte(cache.data_address + int(cache.current_sample_index), Access::Debug)) / 128.0;
+        // auto frequency = std::pow(2, (180 - soundinfo->channels[j].ky) / 12.0);
+        // auto sample = std::sin(2 * M_PI * frequency * i / 65536.0);
+        auto sample_rate = cache.frequency / 1024.0;
+        auto note_freq = (std::uint64_t(channel.freq) << 32) / cache.frequency / 16384.0;
+        auto angular_step = note_freq / 256.0 * (sample_rate / 65536.0);
+
+        // if (channel.status == 8) {
+        //   angular_step = (sample_rate / 65536.0);
+        // }
+
         auto sample = std::int8_t(memory.ReadByte(cache.data_address + int(cache.current_sample_index), Access::Debug)) / 128.0;
 
         samples[0] += sample * channel.leftVolume  / 255.0;
