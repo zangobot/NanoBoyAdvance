@@ -186,11 +186,6 @@ void CPU::PrefetchStepROM(std::uint32_t address, int cycles) {
 }
 
 void CPU::RunFor(int cycles) {
-  // bool m4a_xq_enable = config->audio.m4a_xq_enable && m4a_setfreq_address != 0;
-  // if (m4a_xq_enable && m4a_soundinfo != nullptr) {
-  //   M4AFixupPercussiveChannels();
-  // }
-
   auto limit = scheduler.GetTimestampNow() + cycles;
 
   while (scheduler.GetTimestampNow() < limit) {
@@ -199,12 +194,11 @@ void CPU::RunFor(int cycles) {
     }
 
     if (likely(mmio.haltcnt == HaltControl::RUN)) {
-      // if (unlikely(m4a_xq_enable && state.r15 == m4a_setfreq_address)) {
-      //   M4ASampleFreqSetHook();
-      // }
       if (unlikely(state.r15 == (soundmain_address + sizeof(std::uint32_t)))) {
-        // TODO: do. not. generate. bus. cycles. idiot.
-        auto address = ReadWord(soundinfo_ptr_address, Access::Sequential);
+        auto address = ReadWord(soundinfo_ptr_address, Access::Debug);
+
+        // Skip execution of the actual SoundDriverMain() routine.
+        Jump(state.r14);
 
         switch (address >> 24) {
           case 0x02: {
@@ -222,25 +216,25 @@ void CPU::RunFor(int cycles) {
         }
       }
 
-      if (unlikely(state.r15 == (soundmain_address + 0x68 + sizeof(std::uint32_t)))) {
-        // TODO: do. not. generate. bus. cycles. idiot.
-        auto address = ReadWord(soundinfo_ptr_address, Access::Sequential);
+      // if (unlikely(state.r15 == (soundmain_address + 0x68 + sizeof(std::uint32_t)))) {
+      //   // TODO: do. not. generate. bus. cycles. idiot.
+      //   auto address = ReadWord(soundinfo_ptr_address, Access::Sequential);
 
-        switch (address >> 24) {
-          case 0x02: {
-            apu.OnSoundDriverMainCalled((M4ASoundInfo*)&memory.wram[address & 0x3FFFF], false);
-            break;
-          }
-          case 0x03: {
-            apu.OnSoundDriverMainCalled((M4ASoundInfo*)&memory.iram[address & 0x7FFF], false);
-            break;
-          }
-          default: {
-            ASSERT(false, "MP2K HLE: SoundInfo structure is at unsupported address 0x{0:08X}.", address);
-            break;
-          }
-        }
-      }
+      //   switch (address >> 24) {
+      //     case 0x02: {
+      //       apu.OnSoundDriverMainCalled((M4ASoundInfo*)&memory.wram[address & 0x3FFFF], false);
+      //       break;
+      //     }
+      //     case 0x03: {
+      //       apu.OnSoundDriverMainCalled((M4ASoundInfo*)&memory.iram[address & 0x7FFF], false);
+      //       break;
+      //     }
+      //     default: {
+      //       ASSERT(false, "MP2K HLE: SoundInfo structure is at unsupported address 0x{0:08X}.", address);
+      //       break;
+      //     }
+      //   }
+      // }
 
       Run();
     } else {

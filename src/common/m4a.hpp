@@ -5,6 +5,7 @@
 #include <cstdint>
 
 static constexpr int kM4AMaxDirectSoundChannels = 12;
+static constexpr std::uint32_t kM4AMagicNumber = 0x68736D53;
 
 using u32ptr_t = std::uint32_t;
 

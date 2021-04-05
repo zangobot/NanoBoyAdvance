@@ -45,6 +45,18 @@ public:
     return pipe.opcode[slot];
   }
 
+  void Jump(std::uint32_t address) {
+    if (address & 1) {
+      state.r15 = address & ~1;
+      state.cpsr.f.thumb = 1;
+      ReloadPipeline16();
+    } else {
+      state.r15 = address & ~3;
+      state.cpsr.f.thumb = 0;
+      ReloadPipeline32();
+    }
+  }
+
   bool code = false;
 
   void Run() {
