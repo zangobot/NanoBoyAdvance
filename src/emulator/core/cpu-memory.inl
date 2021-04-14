@@ -126,7 +126,12 @@ auto CPU::Read_(std::uint32_t address, Access access) -> T {
       return Read<T>(ppu.pram, address & 0x3FF);
     }
     case REGION_VRAM: {
+      // TODO: handle stalls during 32-bit accesses properly. requires 16-bit split?
+      // But can the DMA interleave between the two 16-bit accesses?
       PrefetchStepRAM(cycles);
+      while (ppu.IsReadingVRAM()) {
+        PrefetchStepRAM(1);
+      }
       address &= 0x1FFFF;
       if (address >= 0x18000)
         address &= ~0x8000;
@@ -253,7 +258,12 @@ void CPU::Write_(std::uint32_t address, T value, Access access) {
       break;
     }
     case REGION_VRAM: {
+      // TODO: handle stalls during 32-bit accesses properly. requires 16-bit split?
+      // But can the DMA interleave between the two 16-bit accesses?
       PrefetchStepRAM(cycles);
+      while (ppu.IsReadingVRAM()) {
+        PrefetchStepRAM(1);
+      }
       address &= 0x1FFFF;
       if (address >= 0x18000) {
         address &= ~0x8000;

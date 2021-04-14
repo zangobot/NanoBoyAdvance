@@ -78,6 +78,9 @@ void CPU::Reset() {
 }
 
 void CPU::Tick(int cycles) {
+  // TODO: get rid of this terrible, terrible hack.
+  ppu.ResetReadingVRAM();
+
   openbus_from_dma = false;
   
   if (unlikely(dma.IsRunning() && !bus_is_controlled_by_dma)) {

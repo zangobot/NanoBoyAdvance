@@ -24,6 +24,10 @@ public:
 
   void Reset();
 
+  // TODO: get rid of this ugly hack.
+  void ResetReadingVRAM() { is_reading_vram = false; }
+  bool IsReadingVRAM() { return is_reading_vram; }
+
   std::uint8_t pram[0x00400];
   std::uint8_t oam [0x00400];
   std::uint8_t vram[0x18000];
@@ -151,6 +155,9 @@ private:
       int draw_x;
     } bg[4];
   } renderer = {};
+
+  // TODO: properly reset this on Reset().
+  bool is_reading_vram = false;
 
   std::uint16_t buffer_bg[4][240];
 

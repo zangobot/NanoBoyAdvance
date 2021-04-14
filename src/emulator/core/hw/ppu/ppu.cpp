@@ -346,6 +346,8 @@ void PPU::FetchMapDataMode0Next(int id, int cycles_late) {
   scheduler.Add(1 - cycles_late, [this, id](int cycles_late) {
     FetchTileDataMode0(id, cycles_late);
   });
+
+  is_reading_vram = true;
 }
 
 void PPU::FetchTileDataMode0(int id, int cycles_late) {
@@ -408,6 +410,8 @@ void PPU::FetchTileDataMode0(int id, int cycles_late) {
       });
     }
   }
+
+  is_reading_vram = true;
 }
 
 } // namespace nba::core
