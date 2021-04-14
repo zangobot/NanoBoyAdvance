@@ -343,7 +343,7 @@ void PPU::FetchMapDataMode0Next(int id, int cycles_late) {
   }
 
   // TODO: do not generate a lambda every time we schedule this event.
-  scheduler.Add(1 - cycles_late, [this, id](int cycles_late) {
+  scheduler.Add(4 - cycles_late, [this, id](int cycles_late) {
     FetchTileDataMode0(id, cycles_late);
   });
 
