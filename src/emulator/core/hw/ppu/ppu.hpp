@@ -104,6 +104,7 @@ private:
   // TODO: rename  to BeginFetchMapDataMode0();
   void FetchMapDataMode0(int id, int cycles_late);
   void FetchMapDataMode0Next(int id, int cycles_late);
+  void FetchTileDataMode0(int id, int cycles_late);
 
   void RenderScanline();
   void RenderLayerText(int id);
@@ -136,6 +137,15 @@ private:
       std::uint32_t base_adjust;
       int grid_x;
       int grid_y;
+
+      struct Tile {
+        int  number;
+        int  palette;
+        bool flip_x;
+        bool flip_y;
+      } tile;
+
+      int tile_x;
 
       // This is just a test for now.
       int draw_x;

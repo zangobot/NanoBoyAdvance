@@ -317,6 +317,7 @@ void PPU::FetchMapDataMode0(int id, int cycles_late) {
   
   // This is just a test for now; possibily remove later.
   bg.draw_x = 0;
+  bg.tile_x = mmio.bghofs[id] & 7;
 
   FetchMapDataMode0Next(id, cycles_late);
 }
@@ -330,45 +331,10 @@ void PPU::FetchMapDataMode0Next(int id, int cycles_late) {
   std::uint32_t offset  = bg.base + bg.grid_x * 2;
   std::uint16_t encoder = (vram[offset + 1] << 8) | vram[offset];
 
-  {
-    // TODO: is this latched?
-    std::uint32_t tile_base = bgcnt.tile_block * 16384;
-
-    // TODO: this is duplicate. also is this value latched?
-    int line = mmio.bgvofs[id] + mmio.vcount;
-    if (bgcnt.mosaic_enable) {
-      line -= mosaic._counter_y;
-    }
-
-    int tile_y = line & 7;
-
-    int number  = encoder & 0x3FF;
-    int palette = encoder >> 12;
-    bool flip_x = encoder & (1 << 10);
-    bool flip_y = encoder & (1 << 11);
-
-    if (flip_y) tile_y ^= 7;
-
-    std::uint16_t tile[8];
-
-    if (!bgcnt.full_palette) {
-      DecodeTileLine4BPP(tile, tile_base, palette, number, tile_y, flip_x);
-    } else {
-      DecodeTileLine8BPP(tile, tile_base, number, tile_y, flip_x);
-    }
-
-    // Ugh, this is horrible, horrible code.
-    int k = 0;
-    if (bg.draw_x == 0) {
-      k = mmio.bghofs[id] & 7;
-    }
-
-    for (int i = k; i < 8; i++) {
-      buffer_bg[id][bg.draw_x] = tile[i];
-
-      if (++bg.draw_x == 240) break;
-    }
-  }
+  bg.tile.number  = encoder & 0x3FF;
+  bg.tile.palette = encoder >> 12;
+  bg.tile.flip_x  = encoder & (1 << 10);
+  bg.tile.flip_y  = encoder & (1 << 11);
 
   if (++bg.grid_x == 32) {
     bg.grid_x = 0;
@@ -376,12 +342,71 @@ void PPU::FetchMapDataMode0Next(int id, int cycles_late) {
     bg.base_adjust *= -1;
   }
 
-  // TOOD: think of a better exit condition.
-  if (bg.draw_x < 240) {
-    // TODO: do not generate a lambda every time we schedule this event.
-    scheduler.Add(32 - cycles_late, [this, id](int cycles_late) {
-      FetchMapDataMode0Next(id, cycles_late);
-    });
+  // TODO: do not generate a lambda every time we schedule this event.
+  scheduler.Add(1 - cycles_late, [this, id](int cycles_late) {
+    FetchTileDataMode0(id, cycles_late);
+  });
+}
+
+void PPU::FetchTileDataMode0(int id, int cycles_late) {
+  auto const& bgcnt  = mmio.bgcnt[id];
+  auto const& mosaic = mmio.mosaic.bg;
+
+  auto& bg = renderer.bg[id];
+
+  // TODO: is this latched?
+  std::uint32_t tile_base = bgcnt.tile_block * 16384;
+
+  // TODO: this is duplicate. also is this value latched?
+  int line = mmio.bgvofs[id] + mmio.vcount;
+  if (bgcnt.mosaic_enable) {
+    line -= mosaic._counter_y;
+  }
+
+  int tile_x = bg.tile_x;
+  int tile_y = line & 7;
+
+  if (bg.tile.flip_x) tile_x ^= 7;
+  if (bg.tile.flip_y) tile_y ^= 7;
+
+  if (bgcnt.full_palette) {
+    auto data = vram[tile_base + bg.tile.number * 64 + tile_y * 8 + tile_x];
+
+    if (data == 0) {
+      buffer_bg[id][bg.draw_x] = s_color_transparent;      
+    } else {
+      buffer_bg[id][bg.draw_x] = ReadPalette(0, data);
+    }
+  } else {
+    auto data = vram[tile_base + bg.tile.number * 32 + tile_y * 4 + (tile_x >> 1)];
+    
+    if (tile_x & 1) {
+      data >>= 4;
+    } else {
+      data &= 15;
+    }
+
+    if (data == 0) {
+      buffer_bg[id][bg.draw_x] = s_color_transparent;
+    } else {
+      buffer_bg[id][bg.draw_x] = ReadPalette(bg.tile.palette, data);
+    }
+  }
+
+  if (++bg.draw_x != 240) {
+    if (++bg.tile_x == 8) {
+      bg.tile_x = 0;
+
+      // TODO: do not generate a lambda every time we schedule this event.
+      scheduler.Add(4 - cycles_late, [this, id](int cycles_late) {
+        FetchMapDataMode0Next(id, cycles_late);
+      });
+    } else {
+      // TODO: do not generate a lambda every time we schedule this event.
+      scheduler.Add(4 - cycles_late, [this, id](int cycles_late) {
+        FetchTileDataMode0(id, cycles_late);
+      });
+    }
   }
 }
 
