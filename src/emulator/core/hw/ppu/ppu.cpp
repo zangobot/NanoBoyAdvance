@@ -58,7 +58,10 @@ void PPU::Reset() {
   mmio.evy = 0;
   mmio.bldcnt.Reset();
 
-  scheduler.Add(1006, this, &PPU::OnScanlineComplete);
+  // Todo: clean this gross hack up.
+  mmio.vcount = 0xFF;
+  OnHblankComplete(0);
+  // scheduler.Add(1006, this, &PPU::OnScanlineComplete);
 }
 
 void PPU::CheckVerticalCounterIRQ() {
@@ -78,6 +81,9 @@ void PPU::OnScanlineComplete(int cycles_late) {
   auto& bgpb = mmio.bgpb;
   auto& bgpd = mmio.bgpd;
   auto& mosaic = mmio.mosaic;
+
+  // Note: this is just a temporary workaround. Eventually get fully rid of this?
+  RenderScanline();
 
   scheduler.Add(226 - cycles_late, this, &PPU::OnHblankComplete);
 
@@ -164,8 +170,14 @@ void PPU::OnHblankComplete(int cycles_late) {
     bgx[1]._current = bgx[1].initial;
     bgy[1]._current = bgy[1].initial;
   } else {
+    if (mmio.dispcnt.mode == 0) {
+      // Note: what exactly is the delay? this could also be 14 cycles (46 - 32)?!?
+      scheduler.Add(32 - cycles_late, this, &PPU::BeginRenderMode0);
+    }
+    // Moved to OnScanlineComplete() so that it uses per-pixel rendered data...
+    // RenderScanline();
+
     scheduler.Add(1006 - cycles_late, this, &PPU::OnScanlineComplete);
-    RenderScanline();
     // Render OBJs for the *next* scanline.
     if (mmio.dispcnt.enable[ENABLE_OBJ]) {
       RenderLayerOAM(mmio.dispcnt.mode >= 3, mmio.vcount + 1);
@@ -220,10 +232,157 @@ void PPU::OnVblankHblankComplete(int cycles_late) {
   }
 
   if (vcount == 0) {
-    RenderScanline();
+    // Moved to OnScanlineComplete() so that it uses per-pixel rendered data...
+    // RenderScanline();
+
+    if (mmio.dispcnt.mode == 0) {
+      // Note: what exactly is the delay? this could also be 14 cycles (46 - 32)?!?
+      scheduler.Add(32 - cycles_late, this, &PPU::BeginRenderMode0);
+    }
   }
 
   CheckVerticalCounterIRQ();
+}
+
+void PPU::BeginRenderMode0(int cycles_late) {
+  // TODO: cut the cycles_late bullshit, it doesn't matter anymore.
+  if (mmio.dispcnt.enable[0]) {
+    FetchMapDataMode0(0, cycles_late);
+  }
+
+  if (mmio.dispcnt.enable[1]) {
+    // TODO: do not generate a lambda every time we schedule this event.
+    scheduler.Add(1 - cycles_late, [this](int cycles_late) {
+      FetchMapDataMode0(1, cycles_late);
+    });
+  }
+
+  if (mmio.dispcnt.enable[2]) {
+    // TODO: do not generate a lambda every time we schedule this event.
+    scheduler.Add(2 - cycles_late, [this](int cycles_late) {
+      FetchMapDataMode0(2, cycles_late);
+    });
+  }
+
+  if (mmio.dispcnt.enable[3]) {
+    // TODO: do not generate a lambda every time we schedule this event.
+    scheduler.Add(3 - cycles_late, [this](int cycles_late) {
+      FetchMapDataMode0(3, cycles_late);
+    });
+  }
+
+}
+
+void PPU::FetchMapDataMode0(int id, int cycles_late) {
+  auto const& bgcnt  = mmio.bgcnt[id];
+  auto const& mosaic = mmio.mosaic.bg;
+
+  auto& bg = renderer.bg[id];
+
+  int line = mmio.bgvofs[id] + mmio.vcount;
+  if (bgcnt.mosaic_enable) {
+    line -= mosaic._counter_y;
+  }
+
+  bg.grid_x = mmio.bghofs[id] >> 3;
+  bg.grid_y = line >> 3;
+  
+  int screen_x = (bg.grid_x >> 5) & 1;
+  int screen_y = (bg.grid_y >> 5) & 1;
+
+  bg.grid_x &= 31;
+  bg.base = (bgcnt.map_block * 2048) + ((bg.grid_y & 31) * 64);
+
+  switch (bgcnt.size) {
+    case 0:
+      bg.base_adjust = 0;
+      break;
+    case 1: 
+      bg.base += screen_x * 2048;
+      bg.base_adjust = 2048;
+      break;
+    case 2:
+      bg.base += screen_y * 2048;
+      bg.base_adjust = 0;
+      break;
+    case 3:
+      bg.base += (screen_x * 2048) + (screen_y * 4096);
+      bg.base_adjust = 2048;
+      break;
+  }
+  
+  if (screen_x == 1) {
+    bg.base_adjust *= -1;
+  }
+  
+  // This is just a test for now; possibily remove later.
+  bg.draw_x = 0;
+
+  FetchMapDataMode0Next(id, cycles_late);
+}
+
+void PPU::FetchMapDataMode0Next(int id, int cycles_late) {
+  auto const& bgcnt  = mmio.bgcnt[id];
+  auto const& mosaic = mmio.mosaic.bg;
+
+  auto& bg = renderer.bg[id];
+
+  std::uint32_t offset  = bg.base + bg.grid_x * 2;
+  std::uint16_t encoder = (vram[offset + 1] << 8) | vram[offset];
+
+  {
+    // TODO: is this latched?
+    std::uint32_t tile_base = bgcnt.tile_block * 16384;
+
+    // TODO: this is duplicate. also is this value latched?
+    int line = mmio.bgvofs[id] + mmio.vcount;
+    if (bgcnt.mosaic_enable) {
+      line -= mosaic._counter_y;
+    }
+
+    int tile_y = line & 7;
+
+    int number  = encoder & 0x3FF;
+    int palette = encoder >> 12;
+    bool flip_x = encoder & (1 << 10);
+    bool flip_y = encoder & (1 << 11);
+
+    if (flip_y) tile_y ^= 7;
+
+    std::uint16_t tile[8];
+
+    if (!bgcnt.full_palette) {
+      DecodeTileLine4BPP(tile, tile_base, palette, number, tile_y, flip_x);
+    } else {
+      DecodeTileLine8BPP(tile, tile_base, number, tile_y, flip_x);
+    }
+
+    // Ugh, this is horrible, horrible code.
+    int k = 0;
+    if (bg.draw_x == 0) {
+      k = mmio.bghofs[id] & 7;
+    }
+
+    for (int i = k; i < 8; i++) {
+      buffer_bg[id][bg.draw_x] = tile[i];
+
+      if (++bg.draw_x == 240) break;
+    }
+  }
+
+  if (++bg.grid_x == 32) {
+    bg.grid_x = 0;
+    bg.base += bg.base_adjust;
+    bg.base_adjust *= -1;
+  }
+
+  // TOOD: think of a better exit condition.
+  if (bg.draw_x < 240) {
+    // TODO: do not generate a lambda every time we schedule this event.
+    scheduler.Add(32 - cycles_late, [this, id](int cycles_late) {
+      FetchMapDataMode0Next(id, cycles_late);
+    });
+  }
 }
 
 } // namespace nba::core

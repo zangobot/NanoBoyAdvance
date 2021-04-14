@@ -100,6 +100,11 @@ private:
   void OnVblankScanlineComplete(int cycles_late);
   void OnVblankHblankComplete(int cycles_late);
 
+  void BeginRenderMode0(int cycles_late);
+  // TODO: rename  to BeginFetchMapDataMode0();
+  void FetchMapDataMode0(int id, int cycles_late);
+  void FetchMapDataMode0Next(int id, int cycles_late);
+
   void RenderScanline();
   void RenderLayerText(int id);
   void RenderLayerAffine(int id);
@@ -122,6 +127,20 @@ private:
   IRQ& irq;
   DMA& dma;
   std::shared_ptr<Config> config;
+
+  // TODO: properly reset this structure on Reset().
+  struct Renderer {
+    struct Background {
+      // Mode 0 map fetcher
+      std::uint32_t base;
+      std::uint32_t base_adjust;
+      int grid_x;
+      int grid_y;
+
+      // This is just a test for now.
+      int draw_x;
+    } bg[4];
+  } renderer = {};
 
   std::uint16_t buffer_bg[4][240];
 

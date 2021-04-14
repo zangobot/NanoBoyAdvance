@@ -38,11 +38,11 @@ void PPU::RenderScanline() {
   switch (mmio.dispcnt.mode) {
     // BG Mode 0 - 240x160 pixels, Text mode
     case 0: {
-      for (int i = 0; i < 4; i++) {
-        if (mmio.dispcnt.enable[i]) {
-          RenderLayerText(i);
-        }
-      }
+      // for (int i = 0; i < 4; i++) {
+      //   if (mmio.dispcnt.enable[i]) {
+      //     RenderLayerText(i);
+      //   }
+      // }
       ComposeScanline(0, 3);
       break;
     }
