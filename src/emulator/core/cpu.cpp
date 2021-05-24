@@ -60,13 +60,18 @@ void CPU::Reset() {
   serial_bus.Reset();
   ARM7TDMI::Reset();
 
-  if (config->skip_bios) {
+  /*if (config->skip_bios) {
     SwitchMode(arm::MODE_SYS);
     state.bank[arm::BANK_SVC][arm::BANK_R13] = 0x03007FE0;
     state.bank[arm::BANK_IRQ][arm::BANK_R13] = 0x03007FA0;
     state.r13 = 0x03007F00;
     state.r15 = 0x08000000;
-  }
+  }*/
+  state_.GetCPSR().f.mode = Mode::System;
+  state_.GetGPR(Mode::Supervisor, GPR::SP) = 0x03007FE0;
+  state_.GetGPR(Mode::IRQ, GPR::SP) = 0x03007FA0;
+  state_.GetGPR(Mode::System, GPR::SP) = 0x03007F00;
+  state_.GetGPR(Mode::System, GPR::PC) = 0x08000008;
 
   m4a_soundinfo = nullptr;
   m4a_original_freq = 0;
