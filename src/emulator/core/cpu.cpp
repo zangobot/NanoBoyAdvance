@@ -200,7 +200,43 @@ void CPU::RunFor(int cycles) {
       if (unlikely(m4a_xq_enable && state.r15 == m4a_setfreq_address)) {
         M4ASampleFreqSetHook();
       }
-      Run();
+      //Run();
+
+      {
+        auto block_key = BasicBlock::Key{state_};
+        auto match = block_cache.find(block_key.value);
+
+        auto address = block_key.field.address;
+        auto mode = block_key.field.mode;
+
+        if (match != block_cache.end()) {
+          auto basic_block = match->second;
+
+          basic_block->function();
+          //return basic_block->length;
+          Tick(basic_block->length); // fixme
+        } else {
+          // TODO: because BasícBlock is not copyable right now
+          // we use dynamic allocation, but that's probably not optimal.
+          auto basic_block = new BasicBlock{block_key};
+
+          translator.Translate(*basic_block, jit_memory);
+
+          if (basic_block->length > 0) {
+            for (auto& micro_block : basic_block->micro_blocks) {
+              micro_block.emitter.Optimize();
+            }
+            backend.Compile(jit_memory, state_, *basic_block);
+            block_cache[block_key.value] = basic_block;
+            basic_block->function();
+            //return basic_block->length;
+            Tick(basic_block->length); // fixme
+          } else {
+            // we're fucked, interpreter fallback is needed.
+            delete basic_block;
+          }
+        }
+      }
     } else {
       Tick(scheduler.GetRemainingCycleCount());
     }
