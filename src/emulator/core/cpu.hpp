@@ -24,6 +24,10 @@
 #include "hw/timer.hpp"
 #include "scheduler.hpp"
 
+#include "backend/x86_64/backend.hpp"
+#include "frontend/translator/translator.hpp"
+#include "frontend/state.hpp"
+
 namespace nba::core {
 
 class CPU final : private arm::ARM7TDMI, private arm::MemoryBase {

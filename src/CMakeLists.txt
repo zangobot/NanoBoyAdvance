@@ -109,8 +109,9 @@ set(HEADERS
   emulator/emulator.hpp)
 
 add_library(nba STATIC ${SOURCES} ${HEADERS})
-target_link_libraries(nba fmt toml11::toml11)
+target_link_libraries(nba fmt toml11::toml11 lunatic xbyak)
 target_include_directories(nba PUBLIC .)
+target_include_directories(nba PUBLIC ../external/lunatic/src)
 
 
 # TODO: this is not really optimal.

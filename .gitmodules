@@ -4,3 +4,6 @@
 [submodule "source/third_party/toml11"]
 	path = external/toml11
 	url = https://github.com/ToruNiina/toml11
+[submodule "external/lunatic"]
+	path = external/lunatic
+	url = https://github.com/fleroviux/lunatic
