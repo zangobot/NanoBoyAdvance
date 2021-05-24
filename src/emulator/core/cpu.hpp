@@ -14,6 +14,7 @@
 #include <emulator/config/config.hpp>
 #include <memory>
 #include <type_traits>
+#include <unordered_map>
 
 #include "arm/arm7tdmi.hpp"
 #include "hw/apu/apu.hpp"
@@ -24,9 +25,13 @@
 #include "hw/timer.hpp"
 #include "scheduler.hpp"
 
+#include <lunatic/memory.hpp>
 #include "backend/x86_64/backend.hpp"
 #include "frontend/translator/translator.hpp"
 #include "frontend/state.hpp"
+
+using namespace lunatic::backend;
+using namespace lunatic::frontend;
 
 namespace nba::core {
 
@@ -118,6 +123,44 @@ public:
   SerialBus serial_bus;
 
 private:
+  friend struct JITMemory;
+
+  struct JITMemory : lunatic::Memory {
+    JITMemory(CPU* cpu) : cpu(cpu) {}
+
+    auto ReadByte(u32 address, Bus bus) ->  u8 override {
+      return cpu->ReadByte(address, Access::Sequential);
+    }
+
+    auto ReadHalf(u32 address, Bus bus) -> u16 override {
+      return cpu->ReadHalf(address, Access::Sequential);
+    }
+
+    auto ReadWord(u32 address, Bus bus) -> u32 override {
+      return cpu->ReadWord(address, Access::Sequential);
+    }
+
+    void WriteByte(u32 address,  u8 value, Bus bus) override {
+      cpu->WriteByte(address, value, Access::Sequential);
+    }
+
+    void WriteHalf(u32 address, u16 value, Bus bus) override {
+      cpu->WriteHalf(address, value, Access::Sequential);
+    }
+
+    void WriteWord(u32 address, u32 value, Bus bus) override {
+      cpu->WriteWord(address, value, Access::Sequential);
+    }
+
+    CPU* cpu;
+  } jit_memory {this};
+
+  lunatic::backend::X64Backend backend;
+  lunatic::frontend::State state_;
+  lunatic::frontend::Translator translator;
+  std::unordered_map<u64, BasicBlock*> block_cache;
+
+
   template <typename T>
   auto Read(void* buffer, std::uint32_t address) -> T {
     return *reinterpret_cast<T*>(&(reinterpret_cast<std::uint8_t*>(buffer))[address]);
