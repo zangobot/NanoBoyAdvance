@@ -84,13 +84,6 @@ void CPU::Reset() {
 
 void CPU::Tick(int cycles) {
   openbus_from_dma = false;
-  
-  if (unlikely(dma.IsRunning() && !bus_is_controlled_by_dma)) {
-    bus_is_controlled_by_dma = true;
-    dma.Run();
-    bus_is_controlled_by_dma = false;
-    openbus_from_dma = true;
-  }
 
   scheduler.AddCycles(cycles);
 
@@ -196,7 +189,9 @@ void CPU::RunFor(int cycles) {
       mmio.haltcnt = HaltControl::RUN;
     }
 
-    if (likely(mmio.haltcnt == HaltControl::RUN)) {
+    if (dma.IsRunning()) {
+      dma.Run();
+    } else if (likely(mmio.haltcnt == HaltControl::RUN)) {
       if (unlikely(m4a_xq_enable && state.r15 == m4a_setfreq_address)) {
         M4ASampleFreqSetHook();
       }
@@ -232,7 +227,13 @@ void CPU::RunFor(int cycles) {
             //return basic_block->length;
             Tick(basic_block->length); // fixme
           } else {
-            // we're fucked, interpreter fallback is needed.
+            // we're fucked, interpreter fallback is needed, technically.
+            /*if (state_.GetCPSR().f.thumb) {
+              state_.GetGPR(Mode::System, GPR::PC) += sizeof(u16);
+            } else {
+              state_.GetGPR(Mode::System, GPR::PC) += sizeof(u32);
+            }*/
+            ASSERT(false, "We're fucked now, unhandled instruction.");
             delete basic_block;
           }
         }
