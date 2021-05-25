@@ -198,6 +198,25 @@ void CPU::RunFor(int cycles) {
       //Run();
 
       {
+        auto& cpsr = state_.GetCPSR();
+
+        if (IRQLine() && !cpsr.f.mask_irq) {
+          *state_.GetPointerToSPSR(Mode::IRQ) = cpsr;
+
+          cpsr.f.mode = Mode::IRQ;
+          cpsr.f.mask_irq = 1;
+          if (cpsr.f.thumb) {
+            state_.GetGPR(Mode::IRQ, GPR::LR) = state_.GetGPR(Mode::IRQ, GPR::PC);
+          } else {
+            state_.GetGPR(Mode::IRQ, GPR::LR) = state_.GetGPR(Mode::IRQ, GPR::PC) - 4;
+          }
+          cpsr.f.thumb = 0;
+
+          state_.GetGPR(Mode::IRQ, GPR::PC) = 0x18 + sizeof(u32) * 2;
+        }
+      }
+
+      {
         auto block_key = BasicBlock::Key{state_};
         auto match = block_cache.find(block_key.value);
 
@@ -233,7 +252,8 @@ void CPU::RunFor(int cycles) {
             } else {
               state_.GetGPR(Mode::System, GPR::PC) += sizeof(u32);
             }*/
-            ASSERT(false, "We're fucked now, unhandled instruction.");
+            auto thumb =  state_.GetCPSR().f.thumb;
+            ASSERT(false, "We're fucked now, unhandled instruction. r15={:08X} thumb={}", address & ~1, thumb);
             delete basic_block;
           }
         }
