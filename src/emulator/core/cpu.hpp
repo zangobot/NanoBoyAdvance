@@ -128,6 +128,10 @@ private:
   struct JITMemory : lunatic::Memory {
     JITMemory(CPU* cpu) : cpu(cpu) {}
 
+    bool iwram_code_map[0x8000 >> 5]{false};
+    bool need_invalidation = false;
+
+
     auto ReadByte(u32 address, Bus bus) ->  u8 override {
       return cpu->ReadByte(address, Access::Sequential);
     }
@@ -141,14 +145,23 @@ private:
     }
 
     void WriteByte(u32 address,  u8 value, Bus bus) override {
+      if ((address >> 24) == 0x03 && iwram_code_map[(address & 0x7FFF) >> 5]) {
+        need_invalidation = true;
+      }
       cpu->WriteByte(address, value, Access::Sequential);
     }
 
     void WriteHalf(u32 address, u16 value, Bus bus) override {
+      if ((address >> 24) == 0x03 && iwram_code_map[(address & 0x7FFF) >> 5]) {
+        need_invalidation = true;
+      }
       cpu->WriteHalf(address, value, Access::Sequential);
     }
 
     void WriteWord(u32 address, u32 value, Bus bus) override {
+      if ((address >> 24) == 0x03 && iwram_code_map[(address & 0x7FFF) >> 5]) {
+        need_invalidation = true;
+      }
       cpu->WriteWord(address, value, Access::Sequential);
     }
 

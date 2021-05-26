@@ -137,6 +137,7 @@ void DMA::Run() {
   while (IsRunning()) {
     RunChannel(false);
   }
+  //RunChannel(true);
 }
 
 void DMA::RunChannel(bool first) {

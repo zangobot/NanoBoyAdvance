@@ -192,11 +192,6 @@ void CPU::RunFor(int cycles) {
     if (dma.IsRunning()) {
       dma.Run();
     } else if (likely(mmio.haltcnt == HaltControl::RUN)) {
-      if (unlikely(m4a_xq_enable && state.r15 == m4a_setfreq_address)) {
-        M4ASampleFreqSetHook();
-      }
-      //Run();
-
       {
         auto& cpsr = state_.GetCPSR();
 
@@ -216,6 +211,13 @@ void CPU::RunFor(int cycles) {
         }
       }
 
+      // TODO: remove this!!!
+      /*if (state_.GetCPSR().f.thumb) {
+        state_.GetGPR(Mode::User, GPR::PC) &= ~1;
+      } else {
+        state_.GetGPR(Mode::User, GPR::PC) &= ~3;
+      }*/
+
       {
         auto block_key = BasicBlock::Key{state_};
         auto match = block_cache.find(block_key.value);
@@ -223,12 +225,21 @@ void CPU::RunFor(int cycles) {
         auto address = block_key.field.address;
         auto mode = block_key.field.mode;
 
+        if (jit_memory.need_invalidation) {
+          LOG_WARN("cache need to be flushed :(");
+          block_cache = {};
+          jit_memory.need_invalidation = false;
+          for (int i = 0; i < 0x8000>>5; i++) {
+            jit_memory.iwram_code_map[i] = false;
+          }
+        }
+
         if (match != block_cache.end()) {
           auto basic_block = match->second;
 
           basic_block->function();
-          //return basic_block->length;
-          Tick(basic_block->length); // fixme
+          // fixme
+          Tick(basic_block->length * cycles32[int(Access::Sequential)][address >> 24]);
         } else {
           // TODO: because BasícBlock is not copyable right now
           // we use dynamic allocation, but that's probably not optimal.
@@ -240,20 +251,20 @@ void CPU::RunFor(int cycles) {
             for (auto& micro_block : basic_block->micro_blocks) {
               micro_block.emitter.Optimize();
             }
+
+            if ((address >> 24) == 0x03) {
+              jit_memory.iwram_code_map[(address & 0x7FFF) >> 5] = true;
+            }
+
             backend.Compile(jit_memory, state_, *basic_block);
             block_cache[block_key.value] = basic_block;
             basic_block->function();
-            //return basic_block->length;
-            Tick(basic_block->length); // fixme
+            
+            // fixme
+            Tick(basic_block->length * cycles32[int(Access::Sequential)][address >> 24]);
           } else {
-            // we're fucked, interpreter fallback is needed, technically.
-            /*if (state_.GetCPSR().f.thumb) {
-              state_.GetGPR(Mode::System, GPR::PC) += sizeof(u16);
-            } else {
-              state_.GetGPR(Mode::System, GPR::PC) += sizeof(u32);
-            }*/
-            auto thumb =  state_.GetCPSR().f.thumb;
-            ASSERT(false, "We're fucked now, unhandled instruction. r15={:08X} thumb={}", address & ~1, thumb);
+            auto thumb = state_.GetCPSR().f.thumb;
+            ASSERT(false, "JIT encountered unknown opcode r15={:08X} thumb={}", address & ~1, thumb);
             delete basic_block;
           }
         }
