@@ -10,6 +10,8 @@
 #include <common/likely.hpp>
 #include <cstring>
 
+//#define CPU_INTERPRETER
+
 namespace nba::core {
 
 constexpr int CPU::s_ws_nseq[4];
@@ -60,18 +62,19 @@ void CPU::Reset() {
   serial_bus.Reset();
   ARM7TDMI::Reset();
 
-  /*if (config->skip_bios) {
-    SwitchMode(arm::MODE_SYS);
-    state.bank[arm::BANK_SVC][arm::BANK_R13] = 0x03007FE0;
-    state.bank[arm::BANK_IRQ][arm::BANK_R13] = 0x03007FA0;
-    state.r13 = 0x03007F00;
-    state.r15 = 0x08000000;
-  }*/
+#if defined(CPU_INTERPRETER)
+  SwitchMode(arm::MODE_SYS);
+  state.bank[arm::BANK_SVC][arm::BANK_R13] = 0x03007FE0;
+  state.bank[arm::BANK_IRQ][arm::BANK_R13] = 0x03007FA0;
+  state.r13 = 0x03007F00;
+  state.r15 = 0x08000000;
+#else
   state_.GetCPSR().f.mode = Mode::System;
   state_.GetGPR(Mode::Supervisor, GPR::SP) = 0x03007FE0;
   state_.GetGPR(Mode::IRQ, GPR::SP) = 0x03007FA0;
   state_.GetGPR(Mode::System, GPR::SP) = 0x03007F00;
   state_.GetGPR(Mode::System, GPR::PC) = 0x08000008;
+#endif
 
   m4a_soundinfo = nullptr;
   m4a_original_freq = 0;
@@ -83,97 +86,15 @@ void CPU::Reset() {
 }
 
 void CPU::Tick(int cycles) {
-  openbus_from_dma = false;
-
-  scheduler.AddCycles(cycles);
-
-  if (prefetch.active && !bus_is_controlled_by_dma) {
-    prefetch.countdown -= cycles;
-
-    if (prefetch.countdown <= 0) {
-      prefetch.count++;
-      prefetch.active = false;
-    }
-  }
 }
 
 void CPU::Idle() {
-  PrefetchStepRAM(1);
 }
 
 void CPU::PrefetchStepRAM(int cycles) {
-  // TODO: bypass prefetch RAM step during DMA?
-  if (unlikely(!mmio.waitcnt.prefetch)) {
-    Tick(cycles);
-    return;
-  }
-
-  auto thumb = state.cpsr.f.thumb;
-  auto r15 = state.r15;
-
-  /* During any execute cycle except for the fetch cycle, 
-   * r15 will be three instruction ahead instead of two.
-   */
-  if (!code) {
-    r15 -= thumb ? 2 : 4;
-  }
-
-  if (!prefetch.active && prefetch.rom_code_access && prefetch.count < prefetch.capacity) {
-    if (prefetch.count == 0) {
-      if (thumb) {
-        prefetch.opcode_width = 2;
-        prefetch.capacity = 8;
-        prefetch.duty = cycles16[int(Access::Sequential)][r15 >> 24];
-      } else {
-        prefetch.opcode_width = 4;
-        prefetch.capacity = 4;
-        prefetch.duty = cycles32[int(Access::Sequential)][r15 >> 24];
-      }
-      prefetch.last_address = r15 + prefetch.opcode_width;
-      prefetch.head_address = prefetch.last_address;
-    } else {
-      prefetch.last_address += prefetch.opcode_width;
-    }
-
-    prefetch.countdown = prefetch.duty;
-    prefetch.active = true;
-  }
-
-  Tick(cycles);
 }
 
 void CPU::PrefetchStepROM(std::uint32_t address, int cycles) {
-  // TODO: bypass prefetch ROM step during DMA?
-  if (unlikely(!mmio.waitcnt.prefetch)) {
-    Tick(cycles);
-    return;
-  }
-
-  prefetch.rom_code_access = code;
-
-  if (prefetch.active) {
-    if (code && address == prefetch.last_address) {
-      // Complete the load and consume the fetched (half)word right away.
-      Tick(prefetch.countdown);
-      prefetch.count--;
-      return;
-    }
-
-    prefetch.active = false;
-  }
-
-  if (code && prefetch.count != 0) {
-    if (address == prefetch.head_address) {
-      prefetch.count--;
-      prefetch.head_address += prefetch.opcode_width;
-      PrefetchStepRAM(1);
-      return;
-    } else {
-      prefetch.count = 0;
-    }
-  }
-
-  Tick(cycles);
 }
 
 void CPU::RunFor(int cycles) {
@@ -192,6 +113,18 @@ void CPU::RunFor(int cycles) {
     if (dma.IsRunning()) {
       dma.Run();
     } else if (likely(mmio.haltcnt == HaltControl::RUN)) {
+
+#if defined(CPU_INTERPRETER)
+      if (IRQLine()) SignalIRQ();
+
+      static constexpr int kNumberOfInstructions = 8;
+      
+      for (int i = 0; i < kNumberOfInstructions; i++) {
+        Run();
+      }
+
+      scheduler.AddCycles(kNumberOfInstructions * cycles16[int(Access::Sequential)][state.r15 >> 24]);
+#else
       {
         auto& cpsr = state_.GetCPSR();
 
@@ -238,8 +171,9 @@ void CPU::RunFor(int cycles) {
           auto basic_block = match->second;
 
           basic_block->function();
+
           // fixme
-          Tick(basic_block->length * cycles32[int(Access::Sequential)][address >> 24]);
+          scheduler.AddCycles(basic_block->length * cycles16[int(Access::Sequential)][address >> 24]);
         } else {
           // TODO: because BasícBlock is not copyable right now
           // we use dynamic allocation, but that's probably not optimal.
@@ -261,7 +195,7 @@ void CPU::RunFor(int cycles) {
             basic_block->function();
             
             // fixme
-            Tick(basic_block->length * cycles32[int(Access::Sequential)][address >> 24]);
+            scheduler.AddCycles(basic_block->length * cycles16[int(Access::Sequential)][address >> 24]);
           } else {
             auto thumb = state_.GetCPSR().f.thumb;
             ASSERT(false, "JIT encountered unknown opcode r15={:08X} thumb={}", address & ~1, thumb);
@@ -269,8 +203,9 @@ void CPU::RunFor(int cycles) {
           }
         }
       }
+#endif
     } else {
-      Tick(scheduler.GetRemainingCycleCount());
+      scheduler.AddCycles(scheduler.GetRemainingCycleCount());
     }
   }
 }

@@ -48,8 +48,6 @@ public:
   bool code = false;
 
   void Run() {
-    if (IRQLine()) SignalIRQ();
-
     auto instruction = pipe.opcode[0];
 
     if (state.cpsr.f.thumb) {
@@ -76,6 +74,40 @@ public:
         state.r15 += 4;
       }
     }
+  }
+
+  void SignalIRQ() {
+    if (state.cpsr.f.mask_irq) {
+      return;
+    }
+
+    // Prefetch the next instruction
+    // The result will be discarded because we flush the pipeline.
+    // But this is important for timing nonetheless.
+    if (state.cpsr.f.thumb) {
+      ReadHalf(state.r15 & ~1, pipe.fetch_type);
+    } else {
+      ReadWord(state.r15 & ~3, pipe.fetch_type);
+    }
+
+    // Save current program status register.
+    state.spsr[BANK_IRQ].v = state.cpsr.v;
+
+    // Enter IRQ mode and disable IRQs.
+    SwitchMode(MODE_IRQ);
+    state.cpsr.f.mask_irq = 1;
+
+    // Save current program counter and disable Thumb.
+    if (state.cpsr.f.thumb) {
+      state.cpsr.f.thumb = 0;
+      SetReg(14, state.r15);
+    } else {
+      SetReg(14, state.r15 - 4);
+    }
+
+    // Jump to IRQ exception vector.
+    state.r15 = 0x18;
+    ReloadPipeline32();
   }
 
   void SwitchMode(Mode new_mode) {
@@ -171,40 +203,6 @@ private:
     }
 
     return StatusRegister{spsr};
-  }
-
-  void SignalIRQ() {
-    if (state.cpsr.f.mask_irq) {
-      return;
-    }
-
-    // Prefetch the next instruction
-    // The result will be discarded because we flush the pipeline.
-    // But this is important for timing nonetheless.
-    if (state.cpsr.f.thumb) {
-      ReadHalf(state.r15 & ~1, pipe.fetch_type);
-    } else {
-      ReadWord(state.r15 & ~3, pipe.fetch_type);
-    }
-
-    // Save current program status register.
-    state.spsr[BANK_IRQ].v = state.cpsr.v;
-
-    // Enter IRQ mode and disable IRQs.
-    SwitchMode(MODE_IRQ);
-    state.cpsr.f.mask_irq = 1;
-
-    // Save current program counter and disable Thumb.
-    if (state.cpsr.f.thumb) {
-      state.cpsr.f.thumb = 0;
-      SetReg(14, state.r15);
-    } else {
-      SetReg(14, state.r15 - 4);
-    }
-
-    // Jump to IRQ exception vector.
-    state.r15 = 0x18;
-    ReloadPipeline32();
   }
 
   bool CheckCondition(Condition condition) {

@@ -303,6 +303,10 @@ void DMA::Write(int chan_id, int offset, std::uint8_t value) {
       break;
     }
   }
+
+  while (IsRunning()) {
+    Run();
+  }
 }
 
 void DMA::OnChannelWritten(Channel& channel, bool enable_old) {

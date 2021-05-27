@@ -79,7 +79,9 @@ void IRQ::Raise(IRQ::Source source, int channel) {
 void IRQ::UpdateIRQLine() {
   bool irq_line = MasterEnable() && HasServableIRQ();
 
-  if (irq_line != cpu.IRQLine()) {
+  cpu.IRQLine() = irq_line;
+
+  /*if (irq_line != cpu.IRQLine()) {
     if (event != nullptr) {
       scheduler.Cancel(event);
     }
@@ -87,7 +89,7 @@ void IRQ::UpdateIRQLine() {
       cpu.IRQLine() = irq_line;
       event = nullptr;
     });
-  }
+  }*/
 }
 
 } // namespace nba::core
