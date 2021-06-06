@@ -4,3 +4,6 @@
 [submodule "source/third_party/toml11"]
 	path = external/toml11
 	url = https://github.com/ToruNiina/toml11
+[submodule "external/pybind11"]
+	path = external/pybind11
+	url = https://github.com/pybind/pybind11.git
