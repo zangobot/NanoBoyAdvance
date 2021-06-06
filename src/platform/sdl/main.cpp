@@ -368,7 +368,7 @@ void loop() {
       0,
       GL_BGRA,
       GL_UNSIGNED_BYTE,
-      g_framebuffer
+      g_framebuffer //HERE IT IS THE SCREEN
     );
     glBegin(GL_QUADS);
     glTexCoord2f(0, 0);
@@ -502,6 +502,7 @@ void update_controller() {
   g_controller_input_device.SetKeyStatus(nba::InputDevice::Key::Up, y < -threshold);
   g_controller_input_device.SetKeyStatus(nba::InputDevice::Key::Down, y > threshold);
 }
+
 
 int main(int argc, char** argv) {
   init(argc, argv);

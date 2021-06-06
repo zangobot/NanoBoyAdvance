@@ -22,21 +22,21 @@ public:
     GameWrongSize,
     Ok
   };
-  
+
   Emulator(std::shared_ptr<Config> config);
 
   void Reset();
-  auto LoadGame(std::string const& path) -> StatusCode;
-  void Run(int cycles);
-  void Frame();
-  
+  virtual auto LoadGame(std::string const& path) -> StatusCode;
+  virtual void Run(int cycles);
+  virtual void Frame();
+
 private:
   static auto DetectBackupType(std::uint8_t* rom, size_t size) -> Config::BackupType;
   static auto CreateBackupInstance(Config::BackupType backup_type, std::string save_path) -> Backup*;
   static auto CalculateMirrorMask(size_t size) -> std::uint32_t;
-  
-  auto LoadBIOS() -> StatusCode; 
-  
+
+  auto virtual LoadBIOS() -> StatusCode;
+
   core::CPU cpu;
   bool bios_loaded = false;
   std::shared_ptr<Config> config;

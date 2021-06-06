@@ -4,7 +4,7 @@ set(SOURCES
 
 set(HEADERS
     device/audio_device.hpp
-)
+        GameState.cpp GameState.h)
 
 include(FindSDL2)
 find_package(SDL2 REQUIRED)
